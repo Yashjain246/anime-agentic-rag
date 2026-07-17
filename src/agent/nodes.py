@@ -355,6 +355,8 @@ def respond_node(state: AgentState) -> dict:
     context = state.get("retrieved_context", "")
     intent = state.get("intent", "GENERAL")
 
+    system_content, _ = build_system_prompt(intent, persona_text, context)
+
     # Build multi-turn message list: system + full history + current user message
     # This gives the LLM proper conversational memory across turns
     all_messages = state.get("messages", [])
