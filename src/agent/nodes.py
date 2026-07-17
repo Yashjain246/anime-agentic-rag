@@ -366,10 +366,27 @@ def respond_node(state: AgentState) -> dict:
         if isinstance(m, (HM, AIM))
     ]
     
-    # Cap history to last 10 exchanges (20 messages) to stay within token limits
-    history_messages = history_messages[-20:]
+    # Cap history to last 5 exchanges (10 messages) for the text block
+    history_messages = history_messages[-10:]
     
-    llm_input = [SystemMessage(content=system_content)] + history_messages + [HumanMessage(content=user_message)]
+    # FORMAT HISTORY AS TEXT BLOCK to guarantee the LLM reads it
+    history_text = "No previous conversation."
+    if history_messages:
+        lines = []
+        for m in history_messages:
+            role = "User" if isinstance(m, HM) else "You"
+            lines.append(f"{role}: {m.content}")
+        history_text = "\n".join(lines)
+        
+    system_content += f"\n\n--- PREVIOUS CONVERSATION HISTORY ---\n{history_text}\n-------------------------------------"
+    
+    llm_input = [SystemMessage(content=system_content), HumanMessage(content=user_message)]
+
+    print(f"\n--- DEBUG RESPOND NODE ---")
+    print(f"Total messages in state: {len(all_messages)}")
+    print(f"History messages (passed as text): {len(history_messages)}")
+    print(f"System prompt length: {len(system_content)}")
+    print(f"--------------------------\n")
 
     response = get_agent_llm().invoke(llm_input)
 
