@@ -355,12 +355,23 @@ def respond_node(state: AgentState) -> dict:
     context = state.get("retrieved_context", "")
     intent = state.get("intent", "GENERAL")
 
-    system_content, _ = build_system_prompt(intent, persona_text, context)
+    # Build multi-turn message list: system + full history + current user message
+    # This gives the LLM proper conversational memory across turns
+    all_messages = state.get("messages", [])
+    
+    # Separate out only Human/AI messages from history (exclude system messages)
+    from langchain_core.messages import HumanMessage as HM, AIMessage as AIM
+    history_messages = [
+        m for m in all_messages[:-1]  # exclude the last message (current user input)
+        if isinstance(m, (HM, AIM))
+    ]
+    
+    # Cap history to last 10 exchanges (20 messages) to stay within token limits
+    history_messages = history_messages[-20:]
+    
+    llm_input = [SystemMessage(content=system_content)] + history_messages + [HumanMessage(content=user_message)]
 
-    response = get_agent_llm().invoke([
-        SystemMessage(content=system_content),
-        HumanMessage(content=user_message),
-    ])
+    response = get_agent_llm().invoke(llm_input)
 
     logger.info(f"[Respond] Generated response ({len(response.content)} chars)")
     print(f"[Respond] Generated response in '{state.get('persona', 'Default')}' persona ({len(response.content)} chars).")
