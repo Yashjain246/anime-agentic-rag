@@ -387,43 +387,46 @@ with st.sidebar:
         _new_session()
         st.rerun()
 
-    db = get_db()
-    sessions = db.list_sessions()
+    try:
+        db = get_db()
+        sessions = db.list_sessions()
 
-    if sessions:
-        st.caption(f"{len(sessions)} previous conversation(s)")
-        for sess in sessions[:15]:  # show last 15
-            preview = db.get_session_preview(sess["session_id"])
-            is_current = sess["session_id"] == st.session_state.session_id
-            label = f"{'▶ ' if is_current else ''}{preview}"
-            
-            h_col1, h_col2 = st.columns([8, 2])
-            with h_col1:
-                if st.button(label, key=f"hist_{sess['session_id']}", use_container_width=True):
-                    # Load this session
-                    history = db.load_history(sess["session_id"])
-                    st.session_state.session_id = sess["session_id"]
-                    st.session_state.lc_messages = history
-                    st.session_state.anime_name = sess.get("anime_name", "")
-                    st.session_state.persona = sess.get("persona", "Default")
-                    # Rebuild display messages from history
-                    msgs = []
-                    for msg in history:
-                        from langchain_core.messages import HumanMessage, AIMessage
-                        if isinstance(msg, HumanMessage):
-                            msgs.append({"role": "user", "content": msg.content, "intent": ""})
-                        elif isinstance(msg, AIMessage):
-                            msgs.append({"role": "assistant", "content": msg.content, "intent": ""})
-                    st.session_state.messages = msgs
-                    st.rerun()
-            with h_col2:
-                if st.button("🗑️", key=f"del_{sess['session_id']}", help="Delete chat", use_container_width=False):
-                    db.delete_session(sess["session_id"])
-                    if is_current:
-                        st.session_state.session_id = None
-                        st.session_state.messages = []
-                        st.session_state.lc_messages = []
-                    st.rerun()
+        if sessions:
+            st.caption(f"{len(sessions)} previous conversation(s)")
+            for sess in sessions[:15]:  # show last 15
+                preview = db.get_session_preview(sess["session_id"])
+                is_current = sess["session_id"] == st.session_state.session_id
+                label = f"{'▶ ' if is_current else ''}{preview}"
+                
+                h_col1, h_col2 = st.columns([8, 2])
+                with h_col1:
+                    if st.button(label, key=f"hist_{sess['session_id']}", use_container_width=True):
+                        # Load this session
+                        history = db.load_history(sess["session_id"])
+                        st.session_state.session_id = sess["session_id"]
+                        st.session_state.lc_messages = history
+                        st.session_state.anime_name = sess.get("anime_name", "")
+                        st.session_state.persona = sess.get("persona", "Default")
+                        # Rebuild display messages from history
+                        msgs = []
+                        for msg in history:
+                            from langchain_core.messages import HumanMessage, AIMessage
+                            if isinstance(msg, HumanMessage):
+                                msgs.append({"role": "user", "content": msg.content, "intent": ""})
+                            elif isinstance(msg, AIMessage):
+                                msgs.append({"role": "assistant", "content": msg.content, "intent": ""})
+                        st.session_state.messages = msgs
+                        st.rerun()
+                with h_col2:
+                    if st.button("🗑️", key=f"del_{sess['session_id']}", help="Delete chat", use_container_width=False):
+                        db.delete_session(sess["session_id"])
+                        if is_current:
+                            st.session_state.session_id = None
+                            st.session_state.messages = []
+                            st.session_state.lc_messages = []
+                        st.rerun()
+    except Exception as _db_err:
+        st.caption(f"⚠️ Chat history unavailable: DB connection error.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MAIN AREA — Header
