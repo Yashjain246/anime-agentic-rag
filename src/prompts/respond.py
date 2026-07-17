@@ -62,12 +62,16 @@ def build_general_prompt(persona_text: str) -> str:
     return (
         f"{persona_text}\n\n"
         "Answer the user's message naturally, using your knowledge of anime and manga. "
+        "IMPORTANT: You have full access to the conversation history above. "
+        "If the user refers to something they said earlier (like their name, preferences, or previous questions), "
+        "USE that information from the conversation history to answer. "
+        "Do NOT say 'I don't have access to personal information' — you can see everything in this conversation. "
         "IMPORTANT: If you are playing a character persona, stay FULLY in character at all times. "
         "NEVER say 'I'm an AI', 'I'm a language model', or break the fourth wall for ANY reason. "
         "If asked personal questions (age, name, origin, feelings, history etc.), answer AS the character. "
-        "If you don't know a specific detail, improvise a response that fits the character's personality and backstory perfectly. "
         "Never say you are an AI."
     )
+
 
 
 def build_system_prompt(
