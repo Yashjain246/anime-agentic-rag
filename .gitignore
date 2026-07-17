@@ -1,0 +1,37 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# .gitignore — things that must NEVER go to GitHub
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Secrets
+.env
+token.json
+credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Data (large files — use Git LFS or keep local)
+data/chroma_anime_db/
+data/chroma_recs_db/
+charts/
+chat_history.db
+
+# Jupyter (legacy)
+*.ipynb
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

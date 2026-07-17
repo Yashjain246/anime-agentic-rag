@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Anime Agentic RAG — Requirements
+# Install with: pip install -r requirements.txt
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Core LangGraph / LangChain ────────────────────────────────────────────────
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-google-genai>=2.0.0
+langchain-chroma>=0.2.0
+langchain-huggingface>=0.1.0
+
+# ── Retrieval ─────────────────────────────────────────────────────────────────
+chromadb>=0.5.0               # explicit — also pulled by langchain-chroma
+rank_bm25>=0.2.2
+sentence-transformers
+
+# ── LLM observability ─────────────────────────────────────────────────────────
+langsmith
+
+# ── Search ────────────────────────────────────────────────────────────────────
+langchain-tavily              # replaces deprecated TavilySearchResults
+tavily-python
+
+# ── PyTorch for Cloud (CPU only to save space/memory) ────────────────────────
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.4.0
+torchvision>=0.19.0
+
+# ── Google APIs (Calendar) ────────────────────────────────────────────────────
+google-auth>=2.0.0
+google-auth-oauthlib>=1.0.0
+google-auth-httplib2>=0.2.0
+google-api-python-client>=2.0.0
+
+# ── Search ────────────────────────────────────────────────────────────────────
+tavily-python
+
+# ── Web requests ─────────────────────────────────────────────────────────────
+requests>=2.31.0
+
+# ── Data / Charts ─────────────────────────────────────────────────────────────
+matplotlib>=3.7.0
+
+# ── Configuration & Database ──────────────────────────────────────────────────
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
+psycopg2-binary>=2.9.9
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+streamlit>=1.35.0
+
+# ── Dev / Testing ─────────────────────────────────────────────────────────────
+pytest>=8.0.0

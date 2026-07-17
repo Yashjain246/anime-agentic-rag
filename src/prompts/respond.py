@@ -1,0 +1,95 @@
+"""
+src/prompts/respond.py
+──────────────────────
+Per-intent system prompt builders for respond_node.
+
+WHY different prompts per intent:
+  - LORE: must stay grounded in retrieved text only
+  - RECOMMEND: needs to list titles clearly with metadata
+  - TOOL: relay the tool result naturally in the current persona
+  - GENERAL: free to use the LLM's own knowledge
+  - SPOILER_BLOCK: politely refuse without revealing anything
+"""
+
+from __future__ import annotations
+
+
+def build_lore_prompt(persona_text: str, context: str) -> str:
+    """Grounded lore answer — only use the retrieved context."""
+    return (
+        f"{persona_text}\n\n"
+        "Answer the user's question using ONLY the context provided below. "
+        "Do not add information from outside the context. "
+        "If the context doesn't fully answer the question, say so honestly. "
+        "Stay in character throughout.\n\n"
+        f"CONTEXT:\n{context}"
+    )
+
+
+def build_spoiler_block_prompt(persona_text: str) -> str:
+    """Politely refuse to reveal spoiler content."""
+    return (
+        f"{persona_text}\n\n"
+        "The user asked about something that happens after their current chapter. "
+        "Politely tell them this is beyond where they are in the story. "
+        "Do NOT reveal what happens. Stay in character."
+    )
+
+
+def build_recs_prompt(persona_text: str, context: str) -> str:
+    """Anime recommendation answer with clear title/genre/score formatting."""
+    return (
+        f"{persona_text}\n\n"
+        "Recommend anime to the user based on the options below. "
+        "Mention the title, genre, score, and a brief reason why they might like it. "
+        "Stay in character.\n\n"
+        f"AVAILABLE OPTIONS:\n{context}"
+    )
+
+
+def build_tool_prompt(persona_text: str, context: str) -> str:
+    """Relay tool results naturally in the current persona's voice."""
+    return (
+        f"{persona_text}\n\n"
+        "Relay the following tool result to the user in a natural, "
+        "conversational way. Stay in character.\n\n"
+        f"TOOL RESULT:\n{context}"
+    )
+
+
+def build_general_prompt(persona_text: str) -> str:
+    """General anime chat — free to use LLM knowledge."""
+    return (
+        f"{persona_text}\n\n"
+        "Answer the user's message naturally. "
+        "Use your knowledge of anime and manga. Stay in character."
+    )
+
+
+def build_system_prompt(
+    intent: str,
+    persona_text: str,
+    context: str,
+) -> tuple[str, str]:
+    """
+    Returns (system_content, cleaned_context) for respond_node.
+
+    The cleaned_context is the context string after removing any
+    sentinel values (NO_CONTEXT_FOUND etc.) that shouldn't be
+    passed to the LLM.
+    """
+    if intent == "LORE":
+        if "NO_CONTEXT_FOUND" in context:
+            return build_spoiler_block_prompt(persona_text), ""
+        return build_lore_prompt(persona_text, context), context
+
+    elif intent == "RECOMMEND":
+        if "NO_RECS_FOUND" in context:
+            return build_general_prompt(persona_text), ""
+        return build_recs_prompt(persona_text, context), context
+
+    elif intent == "TOOL":
+        return build_tool_prompt(persona_text, context), context
+
+    else:  # GENERAL
+        return build_general_prompt(persona_text), context
