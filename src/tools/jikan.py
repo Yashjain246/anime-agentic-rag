@@ -1,7 +1,7 @@
-﻿"""
+"""
 src/tools/jikan.py
 ──────────────────
-Tool 3: Get next airing episode schedule using Jikan (MyAnimeList API).
+Tool 3: Get next airing episode schedule using MyAnimeList Official API.
 All times are converted to IST (Indian Standard Time, UTC+5:30).
 """
 
@@ -17,54 +17,61 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 _JST = timezone(timedelta(hours=9))
 
 _DAY_MAP = {
-    "mondays": 0, "tuesdays": 1, "wednesdays": 2, "thursdays": 3,
-    "fridays": 4, "saturdays": 5, "sundays": 6,
+    "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+    "friday": 4, "saturday": 5, "sunday": 6,
 }
+
+MAL_CLIENT_ID = "bf0992117fbb08b2b7677d46a8b05444"
 
 
 @tool
 def anilist_schedule(anime_title: str) -> str:
-    """Get the next airing episode schedule for an anime using Jikan (MyAnimeList).
+    """Get the next airing episode schedule for an anime using MyAnimeList Official API.
     Automatically finds the currently airing season. All times in IST.
     Always call this before google_calendar_add to get broadcast_day and broadcast_time.
     Args:
         anime_title: Name of the anime (English or Japanese).
     """
     try:
+        headers = {"X-MAL-CLIENT-ID": MAL_CLIENT_ID}
+        params = {
+            "q": anime_title, 
+            "limit": 10, 
+            "fields": "status,broadcast,alternative_titles"
+        }
         r = requests.get(
-            "https://api.jikan.moe/v4/anime",
-            params={"q": anime_title, "status": "airing", "limit": 5},
+            "https://api.myanimelist.net/v2/anime",
+            headers=headers,
+            params=params,
             timeout=10,
         )
         r.raise_for_status()
         results = r.json().get("data", [])
 
         if not results:
-            time.sleep(1)
-            r2 = requests.get(
-                "https://api.jikan.moe/v4/anime",
-                params={"q": anime_title, "limit": 5},
-                timeout=10,
-            )
-            results = r2.json().get("data", [])
-
-        if not results:
             return f'Anime not found: "{anime_title}".'
 
-        media = next(
-            (x for x in results if x.get("status") == "Currently Airing"),
-            results[0],
-        )
-        title = media.get("title_english") or media.get("title")
-        airing = media.get("airing", False)
-        mal_id = media.get("mal_id")
+        # Find the first one currently airing
+        media_node = None
+        for item in results:
+            if item.get("node", {}).get("status") == "currently_airing":
+                media_node = item["node"]
+                break
+        
+        # Fallback to the first result if none are airing
+        if not media_node:
+            media_node = results[0]["node"]
 
-        if not airing:
+        title = media_node.get("title")
+        status = media_node.get("status")
+        mal_id = media_node.get("id")
+
+        if status != "currently_airing":
             return f'"{title}" is not currently airing.'
 
-        bc = media.get("broadcast", {})
-        day = bc.get("day", "Unknown")
-        tstr = bc.get("time", "Unknown")
+        bc = media_node.get("broadcast", {})
+        day = bc.get("day_of_the_week", "Unknown")
+        tstr = bc.get("start_time", "Unknown")
 
         wd = _DAY_MAP.get(day.lower(), -1)
         if wd != -1 and tstr != "Unknown":
@@ -83,7 +90,6 @@ def anilist_schedule(anime_title: str) -> str:
             air = f"{day} at {tstr} JST"
             cd = "Unknown"
 
-        time.sleep(1.5)
         return (
             f"Anime: {title}\n"
             f"Status: Currently Airing\n"
