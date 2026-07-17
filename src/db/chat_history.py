@@ -15,8 +15,6 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-import psycopg2
-from psycopg2.extras import DictCursor
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 from config.settings import settings
@@ -51,6 +49,7 @@ class ChatHistoryDB:
 
     def _get_conn(self):
         if self.is_postgres:
+            import psycopg2
             return psycopg2.connect(self.db_url)
         else:
             conn = sqlite3.connect(self.db_url)
@@ -60,6 +59,7 @@ class ChatHistoryDB:
     def _execute(self, conn, query: str, params: tuple = ()):
         """A simple wrapper to handle syntax differences between SQLite and Postgres."""
         if self.is_postgres:
+            from psycopg2.extras import DictCursor
             # Convert SQLite placeholders to Postgres placeholders
             pg_query = query.replace("?", "%s")
             # Convert SQLite auto-increment to Postgres serial
