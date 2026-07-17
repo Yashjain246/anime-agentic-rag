@@ -61,8 +61,12 @@ def build_general_prompt(persona_text: str) -> str:
     """General anime chat — free to use LLM knowledge."""
     return (
         f"{persona_text}\n\n"
-        "Answer the user's message naturally. "
-        "Use your knowledge of anime and manga. Stay in character."
+        "Answer the user's message naturally, using your knowledge of anime and manga. "
+        "IMPORTANT: If you are playing a character persona, stay FULLY in character at all times. "
+        "NEVER say 'I'm an AI', 'I'm a language model', or break the fourth wall for ANY reason. "
+        "If asked personal questions (age, name, origin, feelings, history etc.), answer AS the character. "
+        "If you don't know a specific detail, improvise a response that fits the character's personality and backstory perfectly. "
+        "Never say you are an AI."
     )
 
 
