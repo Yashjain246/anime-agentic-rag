@@ -25,6 +25,7 @@ from config.settings import settings
 class ChatHistoryDB:
     """
     Persistent chat history that seamlessly switches between SQLite and PostgreSQL.
+    If the DB connection fails, all methods become silent no-ops so the app never crashes.
     """
 
     def __init__(self, db_url: str | Path | None = None):
@@ -39,8 +40,14 @@ class ChatHistoryDB:
                 self.db_url = url.replace("sqlite:///", "")
             else:
                 self.db_url = "chat_history.db"
-                
-        self._init_db()
+
+        self._connected = False
+        try:
+            self._init_db()
+            self._connected = True
+        except Exception as e:
+            import warnings
+            warnings.warn(f"ChatHistoryDB: Could not connect to database: {e}. Running in no-op mode.")
 
     def _get_conn(self):
         if self.is_postgres:
@@ -102,6 +109,8 @@ class ChatHistoryDB:
         persona: str = "Default",
     ) -> str:
         """Create a new chat session. Returns the session_id."""
+        if not self._connected:
+            return str(uuid.uuid4())  # return a dummy ID so the app doesn't crash
         session_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         conn = self._get_conn()
@@ -125,6 +134,8 @@ class ChatHistoryDB:
         persona: str = "Default",
     ) -> None:
         """Persist one human/AI exchange to the database."""
+        if not self._connected:
+            return
         now = datetime.now(timezone.utc).isoformat()
         conn = self._get_conn()
         try:
@@ -149,6 +160,8 @@ class ChatHistoryDB:
 
     def load_history(self, session_id: str) -> list[BaseMessage]:
         """Retrieve all messages for a session as LangChain message objects."""
+        if not self._connected:
+            return []
         conn = self._get_conn()
         try:
             cur = self._execute(
@@ -170,6 +183,8 @@ class ChatHistoryDB:
 
     def list_sessions(self, user_id: str = "default") -> list[dict]:
         """List all sessions for a user, newest first."""
+        if not self._connected:
+            return []
         conn = self._get_conn()
         try:
             cur = self._execute(
@@ -184,6 +199,8 @@ class ChatHistoryDB:
 
     def get_session_preview(self, session_id: str) -> str:
         """Returns the first human message of a session (for UI labels)."""
+        if not self._connected:
+            return "New conversation"
         conn = self._get_conn()
         try:
             cur = self._execute(
@@ -202,6 +219,8 @@ class ChatHistoryDB:
 
     def delete_session(self, session_id: str) -> None:
         """Delete a session and all its turns."""
+        if not self._connected:
+            return
         conn = self._get_conn()
         try:
             self._execute(conn, "DELETE FROM turns WHERE session_id=?", (session_id,))
@@ -217,6 +236,8 @@ class ChatHistoryDB:
         persona: str | None = None,
     ) -> None:
         """Update session metadata (anime_name, persona) after a turn."""
+        if not self._connected:
+            return
         fields, values = [], []
         if anime_name is not None:
             fields.append("anime_name=?")
