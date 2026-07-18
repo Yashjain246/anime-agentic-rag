@@ -230,6 +230,7 @@ def _init_session():
         "messages": [],           # list of {"role": "user"/"assistant", "content": str, "intent": str}
         "lc_messages": [],        # LangChain message objects for the agent
         "session_id": None,       # current DB session ID
+        "my_session_ids": [],     # session IDs created in THIS browser session (for privacy)
         "anime_name": "",
         "current_chapter": 9999,
         "spoiler_mode": False,
@@ -391,6 +392,10 @@ with st.sidebar:
         db = get_db()
         sessions = db.list_sessions()
 
+        # Filter to only this browser session's conversations (privacy fix)
+        my_ids = set(st.session_state.my_session_ids)
+        sessions = [s for s in sessions if s["session_id"] in my_ids]
+
         if sessions:
             st.caption(f"{len(sessions)} previous conversation(s)")
             for sess in sessions[:15]:  # show last 15
@@ -513,10 +518,13 @@ if user_input:
     # ── Ensure DB session exists before saving ────────────────────────────
     if not st.session_state.session_id:
         db = get_db()
-        st.session_state.session_id = db.create_session(
+        new_sid = db.create_session(
             anime_name=st.session_state.anime_name,
             persona=st.session_state.persona,
         )
+        st.session_state.session_id = new_sid
+        # Track this session ID as belonging to this browser user
+        st.session_state.my_session_ids.append(new_sid)
 
     # ── Display user message ──────────────────────────────────────────────
     st.session_state.messages.append({
@@ -556,7 +564,7 @@ if user_input:
                             "recs_node": "Recommendations (searching anime synopses)...",
                             "tools_node": "External Tools (calling APIs...)",
                             "respond_node": "Generating Response...",
-                            "persona_node": "Applying Persona...",
+                            "persona_node": "Personalizing response style...",
                             "episode_node": "Checking Episode Progress...",
                         }.get(node, f"Executing {node}...")
                         
