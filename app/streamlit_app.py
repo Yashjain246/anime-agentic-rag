@@ -96,6 +96,14 @@ st.markdown("""
     background: transparent !important;
     border: none !important;
   }
+  div[data-testid="stChatMessageAvatar"] {
+    width: 3.5rem !important;
+    height: 3.5rem !important;
+  }
+  div[data-testid="stChatMessageAvatar"] img {
+    width: 100% !important;
+    height: 100% !important;
+  }
   .user-bubble {
     background: linear-gradient(135deg, #1e1b4b, #312e81);
     border: 1px solid rgba(139, 92, 246, 0.4);
@@ -475,7 +483,7 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="anime-header">
-  <span style="font-size:2.5rem;">🌸</span>
+  <span style="font-size:2.5rem;"></span>
   <div>
     <h1>Anime Agentic RAG</h1>
     <p>Spoiler-safe lore • Smart recommendations • Real-time tools • 738 character personas</p>
@@ -573,7 +581,7 @@ if not st.session_state.messages:
     # Original welcome screen HTML (design unchanged)
     st.markdown(f"""
       <div style="text-align:center; padding: 2rem 1rem 0.5rem 1rem; color:#e8e8f0;">
-        <div style="font-size:2rem; margin-bottom:0.8rem;">🌸🗡️✨</div>
+        <div style="font-size:2rem; margin-bottom:0.8rem;"></div>
         <h3 style="font-size:1.6rem; font-weight:700; margin-bottom:0.6rem;
                    background:linear-gradient(90deg,#a855f7,#60a5fa); -webkit-background-clip:text;
                    -webkit-text-fill-color:transparent;">
@@ -727,12 +735,12 @@ if user_input:
                             context = event["update"].get("retrieved_context", "")
                             tools_called = [line.strip("[]:") for line in context.split("\n") if line.startswith("[") and line.endswith("]:")]
                             if tools_called:
-                                status_container.write(f"🔧 **Tools used:** `{', '.join(tools_called)}`")
+                                status_container.write(f"**Tools used:** `{', '.join(tools_called)}`")
                         
                     elif event["type"] == "final":
                         result = event["result"]
                         
-                status_container.update(label="Response generated", state="complete", expanded=False)
+                status_container.update(label="Response generated", state="complete")
 
             reply = result["reply"]
             intent = result["intent"]
