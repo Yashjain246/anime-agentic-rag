@@ -438,7 +438,7 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="anime-header">
-  <span style="font-size:2.5rem;">🎌</span>
+  <span style="font-size:2.5rem;">🌸</span>
   <div>
     <h1>Anime Agentic RAG</h1>
     <p>Spoiler-safe lore • Smart recommendations • Real-time tools • 738 character personas</p>
@@ -492,10 +492,36 @@ for msg in st.session_state.messages:
                 st.image(Image.open(img_path), use_container_width=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PROCESS PENDING MESSAGES (from sidebar buttons)
+# SUGGESTED QUESTIONS (shown only on empty chat)
 # ─────────────────────────────────────────────────────────────────────────────
+if not st.session_state.messages:
+    st.markdown("""
+    <div style="text-align:center; padding: 1.5rem 0 0.5rem 0;">
+        <p style="color:#94a3b8; font-size:0.9rem; margin-bottom:1rem;">✨ Try asking one of these to explore all features:</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    _SUGGESTIONS = [
+        ("📖", "Lore",         "What is Gojo Satoru's Infinity technique and how does it work?"),
+        ("⭐", "Recommend",    "Recommend anime similar to Death Note with psychological thriller vibes"),
+        ("📅", "Schedule",     "When does the next episode of One Piece air?"),
+        ("🎭", "Persona",      "Talk to me like Levi Ackerman from Attack on Titan"),
+        ("🛡️", "Spoiler Guard", "I'm on episode 24 of Demon Slayer, protect me from spoilers"),
+        ("⚔️", "Battle",       "Who would win in a fight — Naruto or Ichigo from Bleach?"),
+    ]
+
+    cols = st.columns(2)
+    for i, (icon, label, question) in enumerate(_SUGGESTIONS):
+        with cols[i % 2]:
+            btn_label = f"{icon} **{label}**\n\n{question[:55]}{'...' if len(question) > 55 else ''}"
+            if st.button(btn_label, key=f"sug_{i}", use_container_width=True):
+                st.session_state._pending_msg = question
+                st.rerun()
+
 pending = None
-if hasattr(st.session_state, "_pending_episode_msg"):
+if "_pending_msg" in st.session_state:
+    pending = st.session_state.pop("_pending_msg")
+elif hasattr(st.session_state, "_pending_episode_msg"):
     pending = st.session_state._pending_episode_msg
     del st.session_state._pending_episode_msg
 elif hasattr(st.session_state, "_pending_screenshot_msg"):
@@ -506,7 +532,7 @@ elif hasattr(st.session_state, "_pending_screenshot_msg"):
 # CHAT INPUT
 # ─────────────────────────────────────────────────────────────────────────────
 user_input = st.chat_input(
-    placeholder="Ask about lore, get recommendations, check schedules... or just chat! 🎌",
+    placeholder="Ask about lore, get recommendations, check schedules... or just chat!",
     key="chat_input",
 )
 
