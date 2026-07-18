@@ -516,14 +516,18 @@ if status_parts:
 # Display existing messages
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"], avatar="app/assets/user_avatar.png" if msg["role"] == "user" else "app/assets/bot_avatar.png"):
-        if msg["role"] == "assistant" and msg.get("intent"):
-            st.markdown(_intent_badge(msg["intent"]), unsafe_allow_html=True)
         if msg["role"] == "user":
             st.markdown(
                 f'<div class="user-bubble">{msg["content"]}</div>',
                 unsafe_allow_html=True,
             )
         else:
+            if msg.get("steps"):
+                with st.status("Response generated", state="complete"):
+                    for step in msg["steps"]:
+                        st.write(step)
+            if msg.get("intent"):
+                st.markdown(_intent_badge(msg["intent"]), unsafe_allow_html=True)
             st.markdown(
                 f'<div class="bot-bubble">{msg["content"]}</div>',
                 unsafe_allow_html=True,
@@ -703,6 +707,7 @@ if user_input:
         response_placeholder = st.empty()
         
         # ── Run agent stream ──────────────────────────────────────────────
+        agent_steps = []
         try:
             result = None
             with st.status("Agent thinking...", expanded=True) as status_container:
@@ -728,6 +733,7 @@ if user_input:
                             "episode_node": "Checking Episode Progress...",
                         }.get(node, f"Executing {node}...")
                         
+                        agent_steps.append(node_desc)
                         status_container.update(label=node_desc)
                         status_container.write(node_desc)
                         
@@ -735,7 +741,9 @@ if user_input:
                             context = event["update"].get("retrieved_context", "")
                             tools_called = [line.strip("[]:") for line in context.split("\n") if line.startswith("[") and line.endswith("]:")]
                             if tools_called:
-                                status_container.write(f"**Tools used:** `{', '.join(tools_called)}`")
+                                tool_msg = f"**Tools used:** `{', '.join(tools_called)}`"
+                                status_container.write(tool_msg)
+                                agent_steps.append(tool_msg)
                         
                     elif event["type"] == "final":
                         result = event["result"]
@@ -773,7 +781,8 @@ if user_input:
                 "role": "assistant",
                 "content": clean_reply,
                 "intent": intent,
-                "image": chart_path
+                "image": chart_path,
+                "steps": agent_steps
             })
 
             # ── Stream response word-by-word for ChatGPT-like feel ────────
@@ -806,7 +815,8 @@ if user_input:
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": clean_reply,
-                "intent": intent
+                "intent": intent,
+                "steps": agent_steps
             })
 
         # ── Save to DB ────────────────────────────────────────────────────
