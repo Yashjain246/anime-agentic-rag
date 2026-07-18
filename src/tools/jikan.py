@@ -27,6 +27,7 @@ MAL_CLIENT_ID = "bf0992117fbb08b2b7677d46a8b05444"
 @tool
 def anilist_schedule(anime_title: str) -> str:
     """Get the next airing episode schedule for an anime using MyAnimeList Official API.
+    Use this tool EVERY TIME the user asks when the next episode of a show will air, broadcast times, or countdowns.
     Automatically finds the currently airing season. All times in IST.
     Always call this before google_calendar_add to get broadcast_day and broadcast_time.
     Args:

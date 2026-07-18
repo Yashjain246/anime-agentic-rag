@@ -21,9 +21,9 @@ anime_news_search = TavilySearch(
     name="anime_news_search",
     description=(
         "Search for recent anime news, announcements, trailers, and updates. "
-        "Use this for questions about new seasons, release dates, cast announcements, "
-        "or any current events in the anime world. "
-        "Do NOT use for lore or plot questions — use the Lore DB for those."
+        "Use this for questions about upcoming new seasons, cast announcements, "
+        "or general current events in the anime world. "
+        "CRITICAL: Do NOT use this to check the release date or broadcast time of weekly episodes for currently airing anime! Use 'anilist_schedule' for that."
     ),
 )
 
