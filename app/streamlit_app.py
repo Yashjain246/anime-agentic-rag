@@ -615,12 +615,24 @@ if user_input:
                 "image": chart_path
             })
 
-            # Show response
+            # ── Stream response word-by-word for ChatGPT-like feel ────────
+            import time as _time
+            badge = _intent_badge(intent)
+            words = clean_reply.split(" ")
+            streamed = ""
+            for i, word in enumerate(words):
+                streamed += word + (" " if i < len(words) - 1 else "")
+                response_placeholder.markdown(
+                    badge + f'<div class="bot-bubble">{streamed}▌</div>',
+                    unsafe_allow_html=True,
+                )
+                _time.sleep(0.025)
+            # Final render without cursor
             response_placeholder.markdown(
-                _intent_badge(intent)
-                + f'<div class="bot-bubble">{clean_reply}</div>',
+                badge + f'<div class="bot-bubble">{clean_reply}</div>',
                 unsafe_allow_html=True,
             )
+
             
             if chart_path:
                 st.image(Image.open(chart_path), use_container_width=True)

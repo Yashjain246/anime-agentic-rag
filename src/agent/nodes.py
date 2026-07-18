@@ -184,6 +184,36 @@ def episode_node(state: AgentState) -> dict:
 
 
 # ── NODE 1: Router ────────────────────────────────────────────────────────────
+_GENERAL_SHORTCUTS = {
+    # Exact or startswith short phrases that are obviously GENERAL
+    "hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "cool", "nice",
+    "yes", "no", "sure", "awesome", "great", "bye", "haha", "lol", "hmm",
+    "what is my name", "who am i", "do you remember",
+}
+_TOOL_KEYWORDS = [
+    "when does", "what time", "next episode", "schedule", "airing",
+    "release date", "ratings", "this screenshot", "identify this", "what anime is",
+    "add to calendar", "calendar",
+]
+_RECOMMEND_KEYWORDS = ["recommend", "suggest", "what should i watch", "similar to", "like aot",
+                       "like jjk", "like naruto", "what to watch"]
+_LORE_KEYWORDS = ["what happens", "who is", "who are", "what is the plot", "explain",
+                  "tell me about", "story of", "power of", "ability", "death of"]
+
+def _fast_classify(msg: str) -> str | None:
+    """Return intent instantly for obvious cases, None if unsure (LLM needed)."""
+    lower = msg.lower().strip()
+    if lower in _GENERAL_SHORTCUTS or len(lower.split()) <= 2:
+        return "GENERAL"
+    for kw in _TOOL_KEYWORDS:
+        if kw in lower:
+            return "TOOL"
+    for kw in _RECOMMEND_KEYWORDS:
+        if kw in lower:
+            return "RECOMMEND"
+    return None  # needs LLM
+
+
 def router_node(state: AgentState) -> dict:
     """
     Classifies user intent using Pydantic-enforced structured output.
@@ -191,8 +221,19 @@ def router_node(state: AgentState) -> dict:
     Uses RouterOutput(intent: Literal['LORE','RECOMMEND','TOOL','GENERAL'])
     via .with_structured_output() — guarantees only the 4 allowed values
     are returned. Falls back to GENERAL on ValidationError.
+    
+    Fast-path: keyword shortcuts skip the LLM for obvious intents.
     """
     user_message = _get_last_human_message(state)
+
+    # ── Fast path: no LLM needed ──────────────────────────────────────────
+    fast_intent = _fast_classify(user_message)
+    if fast_intent:
+        logger.info(f"[Router] Fast-classified as {fast_intent} (no LLM)")
+        print(f"[Router] Fast-classified as: {fast_intent}")
+        return {"intent": fast_intent}
+
+    # ── Slow path: LLM classification ─────────────────────────────────────
     prompt = build_classification_prompt(user_message)
 
     try:
@@ -368,8 +409,8 @@ def respond_node(state: AgentState) -> dict:
         if isinstance(m, (HM, AIM))
     ]
     
-    # Cap history to last 5 exchanges (10 messages) for the text block
-    history_messages = history_messages[-10:]
+    # Cap history to last 6 messages (3 exchanges) for faster token processing
+    history_messages = history_messages[-6:]
     
     # FORMAT HISTORY AS TEXT BLOCK to guarantee the LLM reads it
     history_text = "No previous conversation."
