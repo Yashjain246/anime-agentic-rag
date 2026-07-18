@@ -29,7 +29,6 @@ import streamlit as st
 # ── Page config (must be first Streamlit call) ────────────────────────────────
 st.set_page_config(
     page_title="Anime RAG Bot",
-    page_icon="🎌",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -284,16 +283,16 @@ _init_session()
 
 # ── Helper: intent badge HTML ─────────────────────────────────────────────────
 _INTENT_ICONS = {
-    "LORE": ("📖", "badge-lore"),
-    "RECOMMEND": ("⭐", "badge-recommend"),
-    "TOOL": ("🔧", "badge-tool"),
-    "GENERAL": ("💬", "badge-general"),
-    "PERSONA_SWITCH": ("🎭", "badge-persona"),
-    "EPISODE_UPDATE": ("📺", "badge-persona"),
+    "LORE": ("", "badge-lore"),
+    "RECOMMEND": ("", "badge-recommend"),
+    "TOOL": ("", "badge-tool"),
+    "GENERAL": ("", "badge-general"),
+    "PERSONA_SWITCH": ("", "badge-persona"),
+    "EPISODE_UPDATE": ("", "badge-persona"),
 }
 
 def _intent_badge(intent: str) -> str:
-    icon, cls = _INTENT_ICONS.get(intent, ("💬", "badge-general"))
+    icon, cls = _INTENT_ICONS.get(intent, ("", "badge-general"))
     label = intent.replace("_", " ").title()
     return f'<span class="intent-badge {cls}">{icon} {label}</span>'
 
@@ -313,7 +312,7 @@ with st.sidebar:
     # Header
     st.markdown("""
     <div style="text-align:center; padding: 1rem 0 0.5rem;">
-      <span style="font-size:2.2rem;">⚔️🌸</span>
+      <span style="font-size:2.2rem;"></span>
       <h2 style="font-family:'Rajdhani',sans-serif; font-size:1.4rem;
                  background:linear-gradient(90deg,#a855f7,#3b82f6);
                  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
@@ -325,7 +324,7 @@ with st.sidebar:
     st.divider()
 
     # ── Anime Settings ─────────────────────────────────────────────────────
-    st.markdown('<div class="sidebar-title">📺 Anime Settings</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-title">Anime Settings</div>', unsafe_allow_html=True)
 
     anime_options = ["(All Anime)"] + get_all_canonical_names()
     selected_anime = st.selectbox(
@@ -346,7 +345,7 @@ with st.sidebar:
         )
     with col2:
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🛡️ Set", use_container_width=True, key="set_ep") and ep_input > 0:
+        if st.button("Set", use_container_width=True, key="set_ep") and ep_input > 0:
             if st.session_state.anime_name:
                 # Inject episode update as a user message
                 st.session_state._pending_episode_msg = (
@@ -356,7 +355,7 @@ with st.sidebar:
                 st.warning("Select an anime first")
 
     spoiler_mode = st.toggle(
-        "🔓 Spoiler Mode (see everything)",
+        "Spoiler Mode (see everything)",
         value=st.session_state.spoiler_mode,
         key="spoiler_toggle",
     )
@@ -365,7 +364,7 @@ with st.sidebar:
     st.divider()
 
     # ── Persona ────────────────────────────────────────────────────────────
-    st.markdown('<div class="sidebar-title">🎭 Persona</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-title">Persona</div>', unsafe_allow_html=True)
 
     db_chars = get_character_db()
     char_names = ["Default"] + sorted(
@@ -391,12 +390,12 @@ with st.sidebar:
         if char:
             traits = char.get("personality", {}).get("traits", [])
             if traits:
-                st.caption(f"💡 {', '.join(traits[:3])}")
+                st.caption(f"{', '.join(traits[:3])}")
 
     st.divider()
 
     # ── Screenshot Upload ──────────────────────────────────────────────────
-    st.markdown('<div class="sidebar-title">🖼️ Screenshot ID</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-title">Screenshot ID</div>', unsafe_allow_html=True)
     uploaded_file = st.file_uploader(
         "Upload an anime screenshot",
         type=["jpg", "jpeg", "png", "webp"],
@@ -410,7 +409,7 @@ with st.sidebar:
             tmp.write(uploaded_file.read())
             st.session_state.image_path = tmp.name
         st.image(uploaded_file, caption="Uploaded screenshot", use_column_width=True)
-        if st.button("🔍 Identify this screenshot", use_container_width=True):
+        if st.button("Identify this screenshot", use_container_width=True):
             st.session_state._pending_screenshot_msg = (
                 "What anime is this screenshot from?"
             )
@@ -420,9 +419,9 @@ with st.sidebar:
     st.divider()
 
     # ── Chat History ───────────────────────────────────────────────────────
-    st.markdown('<div class="sidebar-title">📜 Chat History</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-title">Chat History</div>', unsafe_allow_html=True)
 
-    if st.button("➕ New Chat", use_container_width=True, type="primary"):
+    if st.button("New Chat", use_container_width=True, type="primary"):
         _new_session()
         st.rerun()
 
