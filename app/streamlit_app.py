@@ -823,36 +823,3 @@ if user_input:
     st.session_state.image_path = None
     st.rerun()
 
-# ─────────────────────────────────────────────────────────────────────────────
-# EMPTY STATE
-# ─────────────────────────────────────────────────────────────────────────────
-if not st.session_state.messages:
-    st.markdown("""
-    <div style="text-align:center; padding:3rem 1rem; color:#475569;">
-      <div style="font-size:3rem; margin-bottom:1rem;">🎌</div>
-      <h3 style="color:#64748b; font-family:'Rajdhani',sans-serif; font-weight:600;">
-        Ready to explore the anime world
-      </h3>
-      <p style="font-size:0.9rem; max-width:500px; margin:0 auto; line-height:1.7;">
-        Ask about <b style="color:#a855f7">plot & lore</b>,
-        get <b style="color:#34d399">recommendations</b>,
-        check <b style="color:#fbbf24">airing schedules</b>,
-        or identify a <b style="color:#60a5fa">screenshot</b>.<br><br>
-        Set your episode in the sidebar for <b style="color:#f472b6">spoiler-safe</b> answers.
-      </p>
-      <div style="display:flex; justify-content:center; gap:1rem; margin-top:1.5rem; flex-wrap:wrap;">
-        <span style="background:rgba(168,85,247,0.1); border:1px solid rgba(168,85,247,0.3);
-                     border-radius:8px; padding:0.4rem 0.8rem; font-size:0.82rem; color:#c084fc;">
-          📖 What happens to Gojo in Shibuya?
-        </span>
-        <span style="background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3);
-                     border-radius:8px; padding:0.4rem 0.8rem; font-size:0.82rem; color:#34d399;">
-          ⭐ Suggest anime like Attack on Titan
-        </span>
-        <span style="background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3);
-                     border-radius:8px; padding:0.4rem 0.8rem; font-size:0.82rem; color:#fbbf24;">
-          📅 When does JJK next episode air?
-        </span>
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
