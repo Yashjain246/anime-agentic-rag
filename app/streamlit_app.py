@@ -534,65 +534,116 @@ for msg in st.session_state.messages:
 # ─────────────────────────────────────────────────────────────────────────────
 import random as _random
 
-_QUESTION_POOL = [
-    # ─ Lore ─
-    ("📖", "What is Gojo Satoru's Six Eyes and Infinity technique?"),
-    ("📖", "What happens to Eren Yeager at the end of Attack on Titan?"),
-    ("📖", "How does Tanjiro unlock the Sun Breathing style?"),
-    ("📖", "Who are the Pillars in Demon Slayer?"),
-    ("📖", "What is the One Piece and who is Joy Boy?"),
-    ("📖", "Explain the Nen system from Hunter x Hunter"),
-    ("📖", "What is Chainsaw Man's contract devil power?"),
-    ("📖", "Who killed Itachi Uchiha and why?"),
-    # ─ Recommendations ─
-    ("⭐", "Recommend dark psychological anime like Death Note"),
-    ("⭐", "Suggest anime similar to Demon Slayer"),
-    ("⭐", "What should I watch after Fullmetal Alchemist Brotherhood?"),
-    ("⭐", "Recommend anime with strong female leads"),
-    ("⭐", "Best anime for someone new to the genre?"),
-    # ─ Schedule / Tools ─
-    ("📅", "When does the next episode of One Piece air?"),
-    ("📅", "When does Chainsaw Man next air?"),
-    ("📅", "What time does Jujutsu Kaisen broadcast?"),
-    # ─ Persona ─
-    ("🎭", "Talk to me like Levi Ackerman from Attack on Titan"),
-    ("🎭", "Respond as Itadori Yuji from Jujutsu Kaisen"),
-    ("🎭", "Be Zenitsu Agatsuma from Demon Slayer"),
-    ("🎭", "Switch to Muzan Kibutsuji persona"),
-    # ─ Spoiler / Episode ─
-    ("🛡️", "I'm on episode 24 of Demon Slayer, protect me from spoilers"),
-    ("🛡️", "I just finished AOT Season 3, set my spoiler cap"),
-    # ─ General ─
-    ("⚔️", "Who would win — Naruto or Luffy?"),
-    ("⚔️", "Is Goku stronger than Saitama from One Punch Man?"),
+# Pool — one question randomly picked per category each session
+_LORE_POOL = [
+    "What happens to Gojo in Shibuya?",
+    "What is Gojo Satoru's Six Eyes and Infinity technique?",
+    "What happens to Eren Yeager at the end of Attack on Titan?",
+    "How does Tanjiro unlock the Sun Breathing style?",
+    "Who killed Itachi Uchiha and why?",
+    "What is the One Piece and who is Joy Boy?",
+    "Explain the Nen system from Hunter x Hunter",
+    "What is Chainsaw Man's contract devil power?",
+]
+_REC_POOL = [
+    "Suggest anime like Attack on Titan",
+    "Recommend dark psychological anime like Death Note",
+    "What should I watch after Fullmetal Alchemist Brotherhood?",
+    "Suggest anime similar to Demon Slayer",
+    "Recommend anime with strong female leads",
+    "Best anime for someone new to the genre?",
+]
+_TOOL_POOL = [
+    "When does JJK next episode air?",
+    "When does the next episode of One Piece air?",
+    "When does Chainsaw Man next air?",
+    "What time does My Hero Academia broadcast?",
 ]
 
 if not st.session_state.messages:
-    # Pick 3 random questions, stable per session (don't reshuffle on every widget interaction)
+    # Pick one from each category per session, stable across widget reruns
     if st.session_state.suggestion_picks is None:
-        st.session_state.suggestion_picks = _random.sample(range(len(_QUESTION_POOL)), 3)
+        st.session_state.suggestion_picks = [
+            _random.choice(_LORE_POOL),
+            _random.choice(_REC_POOL),
+            _random.choice(_TOOL_POOL),
+        ]
 
-    picked = [_QUESTION_POOL[i] for i in st.session_state.suggestion_picks]
+    lore_q, rec_q, tool_q = st.session_state.suggestion_picks
 
-    st.markdown(
-        '<p style="text-align:center; color:#64748b; font-size:0.8rem; margin:1rem 0 0.5rem 0;">'
-        'Try asking →</p>',
-        unsafe_allow_html=True,
-    )
-    chip_cols = st.columns([1] + [2] * 3 + [1])  # centered 3-column layout
-    for j, (icon, question) in enumerate(picked):
-        with chip_cols[j + 1]:
-            if st.button(f"{icon} {question[:45]}{'...' if len(question)>45 else ''}",
-                         key=f"chip_{j}", use_container_width=True):
-                st.session_state._pending_msg = question
-                st.rerun()
+    # Original welcome screen HTML (design unchanged)
+    st.markdown(f"""
+      <div style="text-align:center; padding: 2rem 1rem 0.5rem 1rem; color:#e8e8f0;">
+        <div style="font-size:2rem; margin-bottom:0.8rem;">🌸🗡️✨</div>
+        <h3 style="font-size:1.6rem; font-weight:700; margin-bottom:0.6rem;
+                   background:linear-gradient(90deg,#a855f7,#60a5fa); -webkit-background-clip:text;
+                   -webkit-text-fill-color:transparent;">
+          Ready to explore the anime world
+        </h3>
+        <p style="font-size:0.9rem; max-width:500px; margin:0 auto; line-height:1.7; color:#94a3b8;">
+          Ask about <b style="color:#a855f7">plot &amp; lore</b>,
+          get <b style="color:#34d399">recommendations</b>,
+          check <b style="color:#fbbf24">airing schedules</b>,
+          or identify a <b style="color:#60a5fa">screenshot</b>.<br><br>
+          Set your episode in the sidebar for <b style="color:#f472b6">spoiler-safe</b> answers.
+        </p>
+      </div>
+    """, unsafe_allow_html=True)
 
-    # Refresh button
-    _, rcol, _ = st.columns([4, 1, 4])
-    with rcol:
-        if st.button("🔀", key="reshuffle", help="Show different questions"):
-            st.session_state.suggestion_picks = _random.sample(range(len(_QUESTION_POOL)), 3)
+    # Clickable pill buttons — styled to match original spans exactly
+    st.markdown("""
+    <style>
+      /* Pill buttons — scoped by key prefix to avoid touching sidebar/chat buttons */
+      div[data-testid="stHorizontalBlock"] button[kind="secondary"] {
+        border-radius: 8px !important;
+        font-size: 0.82rem !important;
+        padding: 0.4rem 0.8rem !important;
+        font-weight: 400 !important;
+        transition: opacity 0.2s !important;
+      }
+      div[data-testid="stHorizontalBlock"] button[kind="secondary"]:hover {
+        opacity: 0.85 !important;
+      }
+    </style>
+    """, unsafe_allow_html=True)
+
+    lore_col, rec_col, tool_col = st.columns(3)
+    with lore_col:
+        st.markdown("""<style>
+          div[data-testid="stHorizontalBlock"] > div:nth-child(1) button {
+            background: rgba(168,85,247,0.1) !important;
+            border: 1px solid rgba(168,85,247,0.3) !important;
+            color: #c084fc !important;
+          }
+        </style>""", unsafe_allow_html=True)
+        if st.button(f"📖 {lore_q}", key="pill_lore", use_container_width=True):
+            st.session_state._pending_msg = lore_q
             st.rerun()
+
+    with rec_col:
+        st.markdown("""<style>
+          div[data-testid="stHorizontalBlock"] > div:nth-child(2) button {
+            background: rgba(16,185,129,0.1) !important;
+            border: 1px solid rgba(16,185,129,0.3) !important;
+            color: #34d399 !important;
+          }
+        </style>""", unsafe_allow_html=True)
+        if st.button(f"⭐ {rec_q}", key="pill_rec", use_container_width=True):
+            st.session_state._pending_msg = rec_q
+            st.rerun()
+
+    with tool_col:
+        st.markdown("""<style>
+          div[data-testid="stHorizontalBlock"] > div:nth-child(3) button {
+            background: rgba(245,158,11,0.1) !important;
+            border: 1px solid rgba(245,158,11,0.3) !important;
+            color: #fbbf24 !important;
+          }
+        </style>""", unsafe_allow_html=True)
+        if st.button(f"📅 {tool_q}", key="pill_tool", use_container_width=True):
+            st.session_state._pending_msg = tool_q
+            st.rerun()
+
 
 pending = None
 if "_pending_msg" in st.session_state:
