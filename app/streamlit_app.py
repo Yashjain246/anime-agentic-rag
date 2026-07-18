@@ -487,13 +487,13 @@ st.markdown("""
 # ── Active status bar ─────────────────────────────────────────────────────────
 status_parts = []
 if st.session_state.anime_name:
-    status_parts.append(f"📺 {st.session_state.anime_name}")
+    status_parts.append(f"Anime: {st.session_state.anime_name}")
 if st.session_state.persona != "Default":
-    status_parts.append(f"🎭 {st.session_state.persona}")
+    status_parts.append(f"Persona: {st.session_state.persona}")
 if st.session_state.spoiler_mode:
-    status_parts.append("🔓 Spoiler Mode ON")
+    status_parts.append("Spoiler Mode ON")
 elif st.session_state.current_chapter < 9999:
-    status_parts.append(f"🛡️ Chapter cap: {st.session_state.current_chapter}")
+    status_parts.append(f"Chapter cap: {st.session_state.current_chapter}")
 
 if status_parts:
     st.markdown(
@@ -508,7 +508,7 @@ if status_parts:
 
 # Display existing messages
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"], avatar="🙋" if msg["role"] == "user" else "🤖"):
+    with st.chat_message(msg["role"]):
         if msg["role"] == "assistant" and msg.get("intent"):
             st.markdown(_intent_badge(msg["intent"]), unsafe_allow_html=True)
         if msg["role"] == "user":
@@ -616,7 +616,7 @@ if not st.session_state.messages:
             color: #c084fc !important;
           }
         </style>""", unsafe_allow_html=True)
-        if st.button(f"📖 {lore_q}", key="pill_lore", use_container_width=True):
+        if st.button(f"{lore_q}", key="pill_lore", use_container_width=True):
             st.session_state._pending_msg = lore_q
             st.rerun()
 
@@ -628,7 +628,7 @@ if not st.session_state.messages:
             color: #34d399 !important;
           }
         </style>""", unsafe_allow_html=True)
-        if st.button(f"⭐ {rec_q}", key="pill_rec", use_container_width=True):
+        if st.button(f"{rec_q}", key="pill_rec", use_container_width=True):
             st.session_state._pending_msg = rec_q
             st.rerun()
 
@@ -640,7 +640,7 @@ if not st.session_state.messages:
             color: #fbbf24 !important;
           }
         </style>""", unsafe_allow_html=True)
-        if st.button(f"📅 {tool_q}", key="pill_tool", use_container_width=True):
+        if st.button(f"{tool_q}", key="pill_tool", use_container_width=True):
             st.session_state._pending_msg = tool_q
             st.rerun()
 
@@ -685,14 +685,14 @@ if user_input:
         "content": user_input,
         "intent": "",
     })
-    with st.chat_message("user", avatar="🙋"):
+    with st.chat_message("user"):
         st.markdown(
             f'<div class="user-bubble">{user_input}</div>',
             unsafe_allow_html=True,
         )
 
     # ── Status indicator while agent runs ────────────────────────────────
-    with st.chat_message("assistant", avatar="🤖"):
+    with st.chat_message("assistant"):
         response_placeholder = st.empty()
         
         # ── Run agent stream ──────────────────────────────────────────────
@@ -721,7 +721,8 @@ if user_input:
                             "episode_node": "Checking Episode Progress...",
                         }.get(node, f"Executing {node}...")
                         
-                        status_container.write(f"🔄 **{node_desc}**")
+                        status_container.update(label=node_desc)
+                        status_container.write(node_desc)
                         
                         if node == "tools_node":
                             context = event["update"].get("retrieved_context", "")
