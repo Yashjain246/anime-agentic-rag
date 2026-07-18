@@ -313,7 +313,7 @@ with st.sidebar:
     # Header
     st.markdown("""
     <div style="text-align:center; padding: 1rem 0 0.5rem;">
-      <span style="font-size:2.5rem;">🎌</span>
+      <span style="font-size:2.2rem;">⚔️🌸</span>
       <h2 style="font-family:'Rajdhani',sans-serif; font-size:1.4rem;
                  background:linear-gradient(90deg,#a855f7,#3b82f6);
                  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
