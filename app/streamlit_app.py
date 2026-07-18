@@ -217,6 +217,43 @@ st.markdown("""
     color: #e8e8f0;
   }
 
+  /* ── Suggestion chips ── */
+  .chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    justify-content: center;
+    margin: 0.8rem 0 1.2rem 0;
+  }
+  /* Override default Streamlit button styling for chips */
+  div[data-testid="column"] > div > div > div > button {
+    background: rgba(99,102,241,0.08) !important;
+    border: 1px solid rgba(99,102,241,0.3) !important;
+    border-radius: 999px !important;
+    color: #c4b5fd !important;
+    font-size: 0.8rem !important;
+    padding: 0.35rem 1rem !important;
+    transition: all 0.2s ease !important;
+    white-space: nowrap !important;
+    font-weight: 500 !important;
+  }
+  div[data-testid="column"] > div > div > div > button:hover {
+    background: rgba(99,102,241,0.25) !important;
+    border-color: rgba(168,85,247,0.6) !important;
+    color: #e9d5ff !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 12px rgba(99,102,241,0.3) !important;
+  }
+  .suggestion-chip {
+    padding: 0.4rem 0.8rem;
+    border-radius: 12px;
+    border: 1px solid #334155;
+    background: #1e293b;
+    color: #cbd5e1;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
   /* ── Scrollbar ── */
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: #0a0a0f; }
@@ -237,6 +274,7 @@ def _init_session():
         "persona": "Default",
         "last_intent": "",
         "image_path": None,
+        "suggestion_picks": None, # random picks stable per session
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -494,29 +532,67 @@ for msg in st.session_state.messages:
 # ─────────────────────────────────────────────────────────────────────────────
 # SUGGESTED QUESTIONS (shown only on empty chat)
 # ─────────────────────────────────────────────────────────────────────────────
+import random as _random
+
+_QUESTION_POOL = [
+    # ─ Lore ─
+    ("📖", "What is Gojo Satoru's Six Eyes and Infinity technique?"),
+    ("📖", "What happens to Eren Yeager at the end of Attack on Titan?"),
+    ("📖", "How does Tanjiro unlock the Sun Breathing style?"),
+    ("📖", "Who are the Pillars in Demon Slayer?"),
+    ("📖", "What is the One Piece and who is Joy Boy?"),
+    ("📖", "Explain the Nen system from Hunter x Hunter"),
+    ("📖", "What is Chainsaw Man's contract devil power?"),
+    ("📖", "Who killed Itachi Uchiha and why?"),
+    # ─ Recommendations ─
+    ("⭐", "Recommend dark psychological anime like Death Note"),
+    ("⭐", "Suggest anime similar to Demon Slayer"),
+    ("⭐", "What should I watch after Fullmetal Alchemist Brotherhood?"),
+    ("⭐", "Recommend anime with strong female leads"),
+    ("⭐", "Best anime for someone new to the genre?"),
+    # ─ Schedule / Tools ─
+    ("📅", "When does the next episode of One Piece air?"),
+    ("📅", "When does Chainsaw Man next air?"),
+    ("📅", "What time does Jujutsu Kaisen broadcast?"),
+    # ─ Persona ─
+    ("🎭", "Talk to me like Levi Ackerman from Attack on Titan"),
+    ("🎭", "Respond as Itadori Yuji from Jujutsu Kaisen"),
+    ("🎭", "Be Zenitsu Agatsuma from Demon Slayer"),
+    ("🎭", "Switch to Muzan Kibutsuji persona"),
+    # ─ Spoiler / Episode ─
+    ("🛡️", "I'm on episode 24 of Demon Slayer, protect me from spoilers"),
+    ("🛡️", "I just finished AOT Season 3, set my spoiler cap"),
+    # ─ General ─
+    ("⚔️", "Who would win — Naruto or Luffy?"),
+    ("⚔️", "Is Goku stronger than Saitama from One Punch Man?"),
+]
+
 if not st.session_state.messages:
-    st.markdown("""
-    <div style="text-align:center; padding: 1.5rem 0 0.5rem 0;">
-        <p style="color:#94a3b8; font-size:0.9rem; margin-bottom:1rem;">✨ Try asking one of these to explore all features:</p>
-    </div>
-    """, unsafe_allow_html=True)
+    # Pick 3 random questions, stable per session (don't reshuffle on every widget interaction)
+    if st.session_state.suggestion_picks is None:
+        st.session_state.suggestion_picks = _random.sample(range(len(_QUESTION_POOL)), 3)
 
-    _SUGGESTIONS = [
-        ("📖", "Lore",         "What is Gojo Satoru's Infinity technique and how does it work?"),
-        ("⭐", "Recommend",    "Recommend anime similar to Death Note with psychological thriller vibes"),
-        ("📅", "Schedule",     "When does the next episode of One Piece air?"),
-        ("🎭", "Persona",      "Talk to me like Levi Ackerman from Attack on Titan"),
-        ("🛡️", "Spoiler Guard", "I'm on episode 24 of Demon Slayer, protect me from spoilers"),
-        ("⚔️", "Battle",       "Who would win in a fight — Naruto or Ichigo from Bleach?"),
-    ]
+    picked = [_QUESTION_POOL[i] for i in st.session_state.suggestion_picks]
 
-    cols = st.columns(2)
-    for i, (icon, label, question) in enumerate(_SUGGESTIONS):
-        with cols[i % 2]:
-            btn_label = f"{icon} **{label}**\n\n{question[:55]}{'...' if len(question) > 55 else ''}"
-            if st.button(btn_label, key=f"sug_{i}", use_container_width=True):
+    st.markdown(
+        '<p style="text-align:center; color:#64748b; font-size:0.8rem; margin:1rem 0 0.5rem 0;">'
+        'Try asking →</p>',
+        unsafe_allow_html=True,
+    )
+    chip_cols = st.columns([1] + [2] * 3 + [1])  # centered 3-column layout
+    for j, (icon, question) in enumerate(picked):
+        with chip_cols[j + 1]:
+            if st.button(f"{icon} {question[:45]}{'...' if len(question)>45 else ''}",
+                         key=f"chip_{j}", use_container_width=True):
                 st.session_state._pending_msg = question
                 st.rerun()
+
+    # Refresh button
+    _, rcol, _ = st.columns([4, 1, 4])
+    with rcol:
+        if st.button("🔀", key="reshuffle", help="Show different questions"):
+            st.session_state.suggestion_picks = _random.sample(range(len(_QUESTION_POOL)), 3)
+            st.rerun()
 
 pending = None
 if "_pending_msg" in st.session_state:
