@@ -52,7 +52,9 @@ def build_tool_prompt(persona_text: str, context: str) -> str:
     return (
         f"{persona_text}\n\n"
         "Relay the following tool result to the user in a natural, "
-        "conversational way. Stay in character.\n\n"
+        "conversational way. Stay in character.\n"
+        "CRITICAL: If the tool result contains an exact time (e.g. '21:00 IST') or a countdown (e.g. '5d 15h'), "
+        "you MUST include that exact time and countdown in your response. Do not summarize it away.\n\n"
         f"TOOL RESULT:\n{context}"
     )
 
