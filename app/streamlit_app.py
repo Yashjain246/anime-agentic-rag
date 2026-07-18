@@ -508,7 +508,7 @@ if status_parts:
 
 # Display existing messages
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
+    with st.chat_message(msg["role"], avatar="app/assets/user_avatar.png" if msg["role"] == "user" else "app/assets/bot_avatar.png"):
         if msg["role"] == "assistant" and msg.get("intent"):
             st.markdown(_intent_badge(msg["intent"]), unsafe_allow_html=True)
         if msg["role"] == "user":
@@ -685,14 +685,14 @@ if user_input:
         "content": user_input,
         "intent": "",
     })
-    with st.chat_message("user"):
+    with st.chat_message("user", avatar="app/assets/user_avatar.png"):
         st.markdown(
             f'<div class="user-bubble">{user_input}</div>',
             unsafe_allow_html=True,
         )
 
     # ── Status indicator while agent runs ────────────────────────────────
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar="app/assets/bot_avatar.png"):
         response_placeholder = st.empty()
         
         # ── Run agent stream ──────────────────────────────────────────────
