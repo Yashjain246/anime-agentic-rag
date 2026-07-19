@@ -31,7 +31,21 @@ def anilist_schedule(anime_title: str) -> str:
     Automatically finds the currently airing season. All times in IST.
     Always call this before google_calendar_add to get broadcast_day and broadcast_time.
     Args:
-        anime_title: Name of the anime (English or Japanese).
+        anime_title: The name AS THE USER WROTE IT — this tool runs its own
+            fuzzy search against the real anime database, so pass their
+            literal wording (fixing only obvious spelling slips), never a
+            different, more familiar-sounding title you guess it might
+            mean. A phrase that sounds like a pun on a famous show's name
+            can be the literal, correct title of a completely different,
+            real, unrelated anime — do not "correct" it to the show it
+            reminds you of.
+            Worked example: user asks "when does chainsmoker cat next
+            episode air?" -> pass anime_title="chainsmoker cat" (this
+            tool's own search resolves that to the real show "Yani Neko").
+            Do NOT pass "Chainsaw Man" just because "chainsmoker" sounds
+            similar to "chainsaw" - that is a coincidence, not evidence of
+            what the user meant, and searching the wrong title returns a
+            wrong schedule for a real, different, unrelated anime.
     """
     try:
         headers = {"X-MAL-CLIENT-ID": MAL_CLIENT_ID}
