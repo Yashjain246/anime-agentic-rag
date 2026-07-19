@@ -199,12 +199,49 @@ st.markdown("""
   @keyframes step-spin {
     to { transform: rotate(360deg); }
   }
-  .step-check {
-    background: linear-gradient(135deg, #10b981, #34d399);
-    color: #052e1d;
-    font-size: 0.62rem;
-    font-weight: 700;
-    box-shadow: 0 0 8px rgba(16,185,129,0.5);
+  /* Animated success checkmark — a ring draws itself, fills in, then the
+     tick draws on top, in sequence (~0.7s total). Inspired by the
+     Touch ID confirmation animation: a deliberate draw-in rather than an
+     icon just appearing instantly. Pure CSS/SVG, no JS. */
+  .step-check-wrap {
+    width: 1.05rem;
+    height: 1.05rem;
+  }
+  .step-check-svg { overflow: visible; }
+  .step-ring {
+    fill: none;
+    stroke: #10b981;
+    stroke-width: 3;
+    stroke-dasharray: 95;
+    stroke-dashoffset: 95;
+    animation: step-ring-draw 0.35s ease-out forwards;
+  }
+  .step-fill {
+    fill: #10b981;
+    opacity: 0;
+    transform-origin: center;
+    transform: scale(0);
+    filter: drop-shadow(0 0 6px rgba(16,185,129,0.6));
+    animation: step-fill-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s forwards;
+  }
+  .step-tick {
+    fill: none;
+    stroke: #052e1d;
+    stroke-width: 4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 24;
+    stroke-dashoffset: 24;
+    animation: step-tick-draw 0.2s ease-out 0.48s forwards;
+  }
+  @keyframes step-ring-draw {
+    to { stroke-dashoffset: 0; }
+  }
+  @keyframes step-fill-pop {
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes step-tick-draw {
+    to { stroke-dashoffset: 0; }
   }
 
   /* ── Intent badge ── */
@@ -224,6 +261,23 @@ st.markdown("""
   .badge-tool      { background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4); }
   .badge-general   { background: rgba(59,130,246,0.2); color: #60a5fa; border: 1px solid rgba(59,130,246,0.4); }
   .badge-persona   { background: rgba(236,72,153,0.2); color: #f472b6; border: 1px solid rgba(236,72,153,0.4); }
+
+  /* ── "How it works" — top-left of the main content area ── */
+  .st-key-how_it_works_top_btn button {
+    border-radius: 999px !important;
+    font-size: 0.78rem !important;
+    padding: 0.3rem 0.9rem !important;
+    font-weight: 500 !important;
+    background: rgba(139,92,246,0.1) !important;
+    border: 1px solid rgba(139,92,246,0.35) !important;
+    color: #c4b5fd !important;
+    transition: all 0.2s ease !important;
+  }
+  .st-key-how_it_works_top_btn button:hover {
+    background: rgba(139,92,246,0.25) !important;
+    border-color: rgba(168,85,247,0.6) !important;
+    color: #e9d5ff !important;
+  }
 
   /* ── Sidebar ── */
   [data-testid="stSidebar"] {
@@ -343,19 +397,32 @@ def _intent_badge(intent: str) -> str:
     label = intent.replace("_", " ").title()
     return f'<span class="intent-badge {cls}">{label}</span>'
 
-# ── Helper: agent step list — spinner while running, checkmark once done ──────
+# ── Helper: agent step list — spinner while running, animated checkmark once
+# done ──────────────────────────────────────────────────────────────────────
+_STEP_CHECK_SVG = (
+    '<span class="step-icon step-check-wrap">'
+    '<svg class="step-check-svg" viewBox="0 0 36 36" width="17" height="17">'
+    '<circle class="step-ring" cx="18" cy="18" r="15"/>'
+    '<circle class="step-fill" cx="18" cy="18" r="15"/>'
+    '<path class="step-tick" d="M10 18.5l5.5 5.5L26 12"/>'
+    '</svg></span>'
+)
+
+
+def _step_row_html(label: str, active: bool) -> str:
+    icon = '<span class="step-icon step-spinner"></span>' if active else _STEP_CHECK_SVG
+    row_cls = "step-row step-active" if active else "step-row step-done"
+    return f'<div class="{row_cls}">{icon}<span class="step-label">{label}</span></div>'
+
+
 def _render_steps_html(steps: list[str], in_progress: bool) -> str:
+    """Static list render — used for history replay, where every step is
+    already resolved (all done, or the last one active if still streaming)."""
     last_idx = len(steps) - 1
-    rows = []
-    for i, label in enumerate(steps):
-        is_active = in_progress and i == last_idx
-        icon = (
-            '<span class="step-icon step-spinner"></span>'
-            if is_active
-            else '<span class="step-icon step-check">&#10003;</span>'
-        )
-        row_cls = "step-row step-active" if is_active else "step-row step-done"
-        rows.append(f'<div class="{row_cls}">{icon}<span class="step-label">{label}</span></div>')
+    rows = [
+        _step_row_html(label, active=(in_progress and i == last_idx))
+        for i, label in enumerate(steps)
+    ]
     return f'<div class="step-list">{"".join(rows)}</div>'
 
 # ── Helper: start new session ────────────────────────────────────────────────
@@ -392,13 +459,23 @@ def _how_it_works_dialog():
     """, unsafe_allow_html=True)
     if st.button("Got it, let's start", type="primary", use_container_width=True):
         st.session_state.seen_intro = True
+        # Persisted in the URL (same mechanism as the anon uid), not just
+        # session_state — session_state alone resets on every page reload,
+        # and deriving "seen it before" from chat history (has any saved
+        # sessions?) had a real bug: clearing all chat history via the
+        # sidebar delete buttons made a returning user look first-time
+        # again and re-triggered this dialog every time their history hit
+        # zero. A dedicated query param means "already saw the intro" and
+        # "currently has chat history" are tracked independently.
+        st.query_params["intro_seen"] = "1"
         st.rerun()
 
 
 def _is_returning_user() -> bool:
     """True if this anon browser identity already has saved chat history —
-    used to only auto-open the intro for genuinely first-time visitors,
-    not on every reload of an already-familiar user's empty "New Chat"."""
+    used so an existing user (from before this dialog existed, so no
+    intro_seen param yet) isn't treated as first-time just because the
+    query param is missing."""
     try:
         return len(get_db().list_sessions(user_id=st.session_state.anon_user_id)) > 0
     except Exception:
@@ -407,6 +484,7 @@ def _is_returning_user() -> bool:
 if (
     not st.session_state.seen_intro
     and not st.session_state.messages
+    and "intro_seen" not in st.query_params
     and not _is_returning_user()
 ):
     _how_it_works_dialog()
@@ -425,9 +503,6 @@ with st.sidebar:
       <p style="color:#475569; font-size:0.75rem; margin:0;">Agentic • RAG • Spoiler-Safe</p>
     </div>
     """, unsafe_allow_html=True)
-
-    if st.button("How it works", use_container_width=True, key="how_it_works_btn"):
-        _how_it_works_dialog()
 
     st.divider()
 
@@ -669,6 +744,15 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────────────────────
 # MAIN AREA — Header
 # ─────────────────────────────────────────────────────────────────────────────
+# Top-left entry point for onboarding — moved out of the sidebar (easy to
+# miss behind the collapse toggle) to the very top of the main content
+# area instead, as far up-left as this layout allows, ahead of the
+# anime-header banner.
+top_left_col, _top_spacer = st.columns([1.3, 8.7])
+with top_left_col:
+    if st.button("How it works", key="how_it_works_top_btn", use_container_width=True):
+        _how_it_works_dialog()
+
 st.markdown("""
 <div class="anime-header">
   <div>
@@ -926,10 +1010,31 @@ if user_input:
         
         # ── Run agent stream ──────────────────────────────────────────────
         agent_steps = []
+        # (placeholder, label) pairs, one per step, oldest first. Each step
+        # gets its OWN st.empty() rather than all steps sharing one placeholder
+        # re-rendered as a whole list. Streamlit's markdown target does a full
+        # HTML replace on every call — with one shared placeholder, appending
+        # step N+1 meant re-inserting the entire list's HTML, which replayed
+        # the draw-in checkmark animation on every already-completed step, not
+        # just the new one. A separate placeholder per step means finishing
+        # step N only ever touches step N's own DOM node.
+        step_slots: list[tuple] = []
+
+        def _finish_previous_step():
+            if step_slots:
+                prev_ph, prev_label = step_slots[-1]
+                prev_ph.markdown(_step_row_html(prev_label, active=False), unsafe_allow_html=True)
+
+        def _start_step(label: str):
+            _finish_previous_step()
+            ph = st.empty()
+            ph.markdown(_step_row_html(label, active=True), unsafe_allow_html=True)
+            step_slots.append((ph, label))
+            agent_steps.append(label)
+
         try:
             result = None
             with st.status("Agent thinking...", expanded=True) as status_container:
-                steps_placeholder = st.empty()
                 for event in stream_agent_with_state(
                     message=user_input,
                     anime_name=st.session_state.anime_name,
@@ -940,11 +1045,15 @@ if user_input:
                     history=st.session_state.lc_messages,
                 ):
                     if event["type"] == "node":
-                        # Display what the agent is currently doing with descriptive text.
-                        # Each new step appears with a spinning circle; appending the
-                        # NEXT step (or finishing the loop) is what visually "completes"
-                        # the previous one, since by the time the next node event
-                        # arrives the previous node has already finished running.
+                        # Display what the agent is currently doing with
+                        # descriptive text. Note: no status_container.update
+                        # (label=...) here — an update() call that doesn't
+                        # also repeat expanded=True was silently collapsing
+                        # the box on every single step (confirmed via the
+                        # rendered <details> losing its "open" attribute
+                        # mid-run) — leaving the header static at "Agent
+                        # thinking..." avoids needing to fight that, and the
+                        # step list below is the actual detail anyway.
                         node = event["name"]
                         node_desc = {
                             "router_node": "Analyzing intent & routing...",
@@ -956,39 +1065,19 @@ if user_input:
                             "episode_node": "Checking Episode Progress...",
                         }.get(node, f"Executing {node}...")
 
-                        agent_steps.append(node_desc)
-                        # Note: no status_container.update(label=...) here. An
-                        # update() call that doesn't also repeat expanded=True
-                        # was silently collapsing the box on every single step
-                        # (confirmed via the rendered <details> losing its
-                        # "open" attribute mid-run) — leaving the header static
-                        # at "Agent thinking..." avoids needing to fight that,
-                        # and the step list below is the actual detail anyway.
-                        steps_placeholder.markdown(
-                            _render_steps_html(agent_steps, in_progress=True),
-                            unsafe_allow_html=True,
-                        )
+                        _start_step(node_desc)
 
                         if node == "tools_node":
                             context = event["update"].get("retrieved_context", "")
                             tools_called = [line.strip("[]:") for line in context.split("\n") if line.startswith("[") and line.endswith("]:")]
                             if tools_called:
-                                tool_msg = f"Tools used: {', '.join(tools_called)}"
-                                agent_steps.append(tool_msg)
-                                steps_placeholder.markdown(
-                                    _render_steps_html(agent_steps, in_progress=True),
-                                    unsafe_allow_html=True,
-                                )
+                                _start_step(f"Tools used: {', '.join(tools_called)}")
 
                     elif event["type"] == "final":
                         result = event["result"]
 
-                # Stream finished — the last step is done too, so every row
-                # in the list now shows a green checkmark.
-                steps_placeholder.markdown(
-                    _render_steps_html(agent_steps, in_progress=False),
-                    unsafe_allow_html=True,
-                )
+                # Stream finished — the last step is done too.
+                _finish_previous_step()
                 status_container.update(label="Response generated", state="complete")
 
             reply = result["reply"]

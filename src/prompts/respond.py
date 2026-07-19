@@ -39,7 +39,15 @@ def build_lore_prompt(persona_text: str, context: str) -> str:
         "answer the part it covers and say plainly what's missing rather "
         "than refusing outright. If it doesn't cover the question at all, "
         "say so honestly instead of guessing or filling in from outside "
-        "knowledge. Stay in character throughout.\n\n"
+        "knowledge.\n"
+        "When something isn't covered, never phrase it as a limitation of "
+        "'the context' or say things like 'the context doesn't explain' or "
+        "'the provided information doesn't cover' — that's an implementation "
+        "detail the user shouldn't see and it breaks the illusion that "
+        "you're a fan, not a retrieval system. Phrase it as a fact about "
+        "the story instead: 'that hasn't been shown in the manga/anime', "
+        "'the author hasn't revealed that yet', or similar. Stay in "
+        "character throughout.\n\n"
         f"CONTEXT:\n{context}"
     )
 
