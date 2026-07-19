@@ -63,6 +63,29 @@ def build_spoiler_block_prompt(persona_text: str) -> str:
     )
 
 
+def build_unsupported_anime_prompt(persona_text: str) -> str:
+    """Honest refusal for lore questions about an anime that isn't indexed
+    at all — distinct from build_spoiler_block_prompt, which is for anime
+    that ARE indexed but whose answer sits beyond the user's progress.
+    Conflating the two used to produce a "that's beyond where you've read"
+    reply for anime that were never in the lore database in the first
+    place, which is actively misleading (implies partial support that
+    doesn't exist)."""
+    return (
+        f"{persona_text}\n\n"
+        "The user asked a plot/lore question about an anime that isn't in "
+        "this app's lore database — chapter-level detail is only available "
+        "for Demon Slayer, Jujutsu Kaisen, Attack on Titan, and Chainsaw "
+        "Man. Tell them plainly, in character, that you don't have that "
+        "kind of detailed knowledge for this one specifically, and suggest "
+        "asking about one of those four instead, or something else you can "
+        "actually help with (recommendations, airing schedules, ratings). "
+        "Don't guess at plot details from general knowledge, and don't "
+        "mention 'the context' or a database — just speak as yourself not "
+        "knowing the specifics."
+    )
+
+
 def build_recs_prompt(persona_text: str, context: str) -> str:
     """Anime recommendation answer with clear title/genre/score formatting."""
     return (
@@ -152,7 +175,9 @@ def build_system_prompt(
     passed to the LLM.
     """
     if intent == "LORE":
-        if "NO_CONTEXT_FOUND" in context:
+        if "ANIME_NOT_SUPPORTED" in context:
+            prompt, cleaned_context = build_unsupported_anime_prompt(persona_text), ""
+        elif "NO_CONTEXT_FOUND" in context:
             prompt, cleaned_context = build_spoiler_block_prompt(persona_text), ""
         else:
             prompt, cleaned_context = build_lore_prompt(persona_text, context), context

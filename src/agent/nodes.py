@@ -26,6 +26,7 @@ from config.settings import settings
 from src.agent.state import AgentState
 from src.episode.detector import detect_episode_progress
 from src.episode.mapping import episode_to_chapter
+from src.episode.normalizer import ANIME_NAME_ALIASES, SUPPORTED_ANIME
 from src.llm.clients import get_agent_llm, get_query_gen_llm
 from src.persona.builder import get_persona_prompt
 from src.persona.detector import detect_persona_switch
@@ -288,12 +289,66 @@ def router_node(state: AgentState) -> dict:
 
 
 # ── NODE 2: Lore ──────────────────────────────────────────────────────────────
+def _mentions_supported_anime(text: str) -> bool:
+    """True if the message names (or aliases) one of the 4 anime actually
+    indexed in the Lore DB."""
+    lower = text.lower()
+    return (
+        any(alias in lower for alias in ANIME_NAME_ALIASES)
+        or any(name.lower() in lower for name in SUPPORTED_ANIME)
+    )
+
+
+# Other well-known anime the Lore DB does NOT cover — used only to
+# positively identify "this question is clearly about a different show",
+# not to detect every possible unsupported title. Deliberately NOT used as
+# "anything that doesn't match this list must be supported": a generic
+# follow-up like "what happens next?" mentions no anime by name at all and
+# should fall through to normal retrieval unchanged, relying on anime_name
+# / conversation context exactly as before. Only an explicit, confident
+# match here short-circuits retrieval.
+_OTHER_KNOWN_ANIME = [
+    "one piece", "naruto", "boruto", "death note", "my hero academia",
+    "boku no hero", "dragon ball", "bleach", "fullmetal alchemist",
+    "tokyo ghoul", "hunter x hunter", "one punch man", "code geass",
+    "steins;gate", "cowboy bebop", "spy x family", "mob psycho",
+    "haikyuu", "black clover", "fairy tail", "sword art online", " sao ",
+    "re:zero", "konosuba", "overlord", "vinland saga", "berserk",
+    "gintama", "evangelion", "your name", "dandadan", "dan da dan",
+    "blue lock", "kaiju no. 8", "mashle", "eminence in shadow",
+    "classroom of the elite", "solo leveling", "frieren",
+]
+
+
+def _mentions_other_known_anime(text: str) -> bool:
+    """True if the message clearly names a specific anime outside the 4
+    supported ones — see _OTHER_KNOWN_ANIME above for what this does and
+    doesn't guarantee."""
+    lower = f" {text.lower()} "
+    return any(name in lower for name in _OTHER_KNOWN_ANIME)
+
+
 def lore_node(state: AgentState) -> dict:
     """
     Retrieves relevant manga chapters from the Lore DB.
     Applies the spoiler firewall based on current_chapter and spoiler_mode.
     """
     user_message = _get_last_human_message(state)
+
+    # Only short-circuit when the question clearly names a different,
+    # specific anime we don't have lore for — asking about One Piece
+    # shouldn't retrieve semantically-nearest-but-irrelevant Demon Slayer/
+    # JJK/AoT/Chainsaw Man chunks and let the LLM reason from them (top-k
+    # similarity search always returns *something*, never truly "no
+    # results", so an empty-docs check alone never actually caught this).
+    # A generic question naming no anime at all still falls through to
+    # retrieval exactly as before — see _mentions_other_known_anime above.
+    if not state.get("anime_name") and not _mentions_supported_anime(user_message) and _mentions_other_known_anime(user_message):
+        print("[Lore] Query is clearly about an unsupported anime — skipping retrieval")
+        return {"retrieved_context": (
+            "ANIME_NOT_SUPPORTED: This app's lore database only covers "
+            "Demon Slayer, Jujutsu Kaisen, Attack on Titan, and Chainsaw Man."
+        )}
 
     if state.get("spoiler_mode", False):
         print("[Lore] Spoiler mode ON: Searching all chapters...")
@@ -309,6 +364,10 @@ def lore_node(state: AgentState) -> dict:
     docs = retriever.invoke(user_message)
 
     if not docs:
+        # The confidently-unsupported case is already gated above, so an
+        # empty result here is either a genuine spoiler-cap miss or a
+        # vague/ambiguous question — the spoiler-style framing below is a
+        # reasonable fit for both.
         if not state.get("spoiler_mode", False):
             context = (
                 "NO_CONTEXT_FOUND: The event the user is asking about "
