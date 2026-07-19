@@ -13,8 +13,6 @@ WHY different prompts per intent:
 
 from __future__ import annotations
 
-from config.settings import settings
-
 # Applied to every response regardless of intent — without this, responses
 # tend toward formal report-style writing (transition-word scaffolding,
 # restating the question, over-listing) rather than a natural reply.
@@ -102,19 +100,6 @@ def build_recs_prompt(persona_text: str, context: str) -> str:
 
 def build_tool_prompt(persona_text: str, context: str) -> str:
     """Relay tool results naturally in the current persona's voice."""
-    calendar_offer = ""
-    has_real_schedule = (
-        "[anilist_schedule]" in context.lower()
-        and "status: currently airing" in context.lower()
-    )
-    if settings.ENABLE_CALENDAR_TOOL and has_real_schedule:
-        calendar_offer = (
-            "\nThis result includes a real upcoming airing time — always "
-            "end your response by asking the user if they'd like it added "
-            "to their Google Calendar (e.g. \"Want me to add this to your "
-            "calendar?\"). If the anime isn't currently airing, there's "
-            "nothing to add — don't offer to add it.\n"
-        )
     link_instruction = ""
     if "link:" in context.lower():
         link_instruction = (
@@ -142,8 +127,7 @@ def build_tool_prompt(persona_text: str, context: str) -> str:
         "'error', 'not found'), say plainly that it didn't work rather than "
         "claiming success — never describe an action as completed when the "
         "result shows it failed.\n"
-        f"{link_instruction}"
-        f"{calendar_offer}\n"
+        f"{link_instruction}\n"
         f"TOOL RESULT:\n{context}"
     )
 
