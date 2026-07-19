@@ -71,4 +71,4 @@ def trace_moe_vision(image_path: str) -> str:
     except FileNotFoundError:
         return f"Image not found: {image_path}"
     except Exception as e:
-        return f"trace.moe error: {e}"
+        return f"Screenshot lookup error: {e}"

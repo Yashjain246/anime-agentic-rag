@@ -17,6 +17,7 @@ Node execution order:
 from __future__ import annotations
 
 import logging
+import re
 from pydantic import ValidationError
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -34,6 +35,7 @@ from src.prompts.respond import build_system_prompt
 from src.prompts.router import RouterOutput, build_classification_prompt
 from src.rag.retriever import build_retriever
 from src.rag.vectorstores import get_recs_vectorstore
+from src.tools.calendar import google_calendar_add
 from src.tools.registry import TOOLS
 
 logger = logging.getLogger(__name__)
@@ -489,6 +491,40 @@ def tools_node(state: AgentState) -> dict:
         called = [tc["name"] for tc in response.tool_calls]
         logger.info(f"[Tools] Step {step + 1}/{settings.MAX_TOOL_ITERATIONS}: called {called}")
         print(f"[Tools] LLM requested tools: {called}")
+
+        # Deterministic chain, not left to the LLM's judgment each time: if
+        # it just checked a schedule and the anime is airing, add it to the
+        # calendar directly in code rather than hoping the LLM reliably
+        # decides to make that second call itself. Prompt-only chaining
+        # here was inconsistent in practice — sometimes it answered with
+        # just the schedule and stopped, sometimes it asked the user
+        # first — even though the system prompt says to always do both.
+        if (
+            settings.ENABLE_CALENDAR_TOOL
+            and "anilist_schedule" in called
+            and "google_calendar_add" not in called
+        ):
+            schedule_result = next(
+                (m.content for m in tool_result_state["messages"]
+                 if isinstance(m, ToolMessage) and m.name == "anilist_schedule"),
+                "",
+            )
+            if "status: currently airing" in schedule_result.lower():
+                title_match = re.search(r"Anime:\s*(.+)", schedule_result)
+                bc_match = re.search(r"Broadcast:\s*(\w+)\s+at\s+([\d:]+)\s*JST", schedule_result)
+                if title_match and bc_match:
+                    anime_title = title_match.group(1).strip()
+                    broadcast_day, broadcast_time = bc_match.group(1), bc_match.group(2)
+                    print(f"[Tools] Auto-chaining google_calendar_add for {anime_title}")
+                    calendar_result = google_calendar_add.invoke({
+                        "anime_title": anime_title,
+                        "broadcast_day": broadcast_day,
+                        "broadcast_time": broadcast_time,
+                    })
+                    tool_results.append(f"[google_calendar_add]:\n{calendar_result}")
+                    # Both results are already in tool_results — no need to
+                    # loop back to the LLM again for this.
+                    break
     else:
         # Loop exhausted max iterations
         logger.warning(

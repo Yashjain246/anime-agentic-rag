@@ -413,6 +413,17 @@ def _linkify(text: str) -> str:
         text,
     )
 
+# User-facing labels for the "Tools used" step — never show raw tool/
+# function names in the UI, since some directly name the third-party API
+# behind them (trace_moe_vision → trace.moe, omdb_graph_generator → OMDB).
+_TOOL_DISPLAY_NAMES = {
+    "trace_moe_vision": "Screenshot Identification",
+    "omdb_graph_generator": "Episode Ratings",
+    "anilist_schedule": "Airing Schedule",
+    "anime_news_search": "News Search",
+    "google_calendar_add": "Calendar Event",
+}
+
 # ── Helper: agent step list — spinner while running, animated checkmark once
 # done ──────────────────────────────────────────────────────────────────────
 _STEP_CHECK_SVG = (
@@ -1179,7 +1190,13 @@ if user_input:
                             context = event["update"].get("retrieved_context", "")
                             tools_called = [line.strip("[]:") for line in context.split("\n") if line.startswith("[") and line.endswith("]:")]
                             if tools_called:
-                                _start_step(f"Tools used: {', '.join(tools_called)}")
+                                # Friendly labels, not raw function names —
+                                # some tool names (trace_moe_vision,
+                                # omdb_graph_generator) directly name the
+                                # third-party API behind them, which this
+                                # step list would otherwise expose in the UI.
+                                friendly = [_TOOL_DISPLAY_NAMES.get(t, t) for t in tools_called]
+                                _start_step(f"Tools used: {', '.join(friendly)}")
 
                     elif event["type"] == "final":
                         result = event["result"]

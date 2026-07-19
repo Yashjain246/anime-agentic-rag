@@ -65,7 +65,6 @@ def anilist_schedule(anime_title: str) -> str:
 
         title = media_node.get("title")
         status = media_node.get("status")
-        mal_id = media_node.get("id")
 
         if status != "currently_airing":
             return f'"{title}" is not currently airing.'
@@ -96,8 +95,7 @@ def anilist_schedule(anime_title: str) -> str:
             f"Status: Currently Airing\n"
             f"Next episode airs: {air}\n"
             f"Time until airing: {cd}\n"
-            f"Broadcast: {day} at {tstr} JST\n"
-            f"MAL page: https://myanimelist.net/anime/{mal_id}"
+            f"Broadcast: {day} at {tstr} JST"
         )
 
     except Exception as e:

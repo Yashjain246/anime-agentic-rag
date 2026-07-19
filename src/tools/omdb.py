@@ -121,4 +121,4 @@ def omdb_graph_generator(anime_title: str, season: int = 1) -> str:
         )
 
     except Exception as e:
-        return f"OMDB error: {e}"
+        return f"Ratings lookup error: {e}"
