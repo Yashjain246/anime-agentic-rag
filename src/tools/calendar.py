@@ -29,6 +29,14 @@ _JST = timezone(timedelta(hours=9))
 
 _DAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
+# Single shared calendar (owned by the developer's own Google account) that
+# every user's "add to calendar" request writes to — this is what lets the
+# app skip a per-user OAuth flow entirely: the tool always has write access
+# to ITS OWN calendar, then hands back a link for the requesting user to
+# view and copy the event into their own calendar, instead of ever needing
+# to authenticate as that user.
+_PUBLIC_CALENDAR_ID = "c0683492932a088b94531c3e63a1523e81cb02ad7ed9c35ac5cc2711b70d99dd@group.calendar.google.com"
+
 
 def _parse_weekday(day_str: str) -> int | None:
     """
@@ -84,6 +92,61 @@ def _get_calendar_service():
     return google_build("calendar", "v3", credentials=creds)
 
 
+# Whether we've already confirmed _PUBLIC_CALENDAR_ID has public read
+# access this process lifetime — avoids an extra ACL API call on every
+# single add once it's been checked once.
+_calendar_public_checked = False
+
+
+def _ensure_calendar_is_public(service) -> None:
+    """
+    Grant "anyone with the link" read access to the shared calendar.
+
+    Without this, service.events().insert()'s returned htmlLink only
+    resolves for someone browsing while logged into the calendar OWNER's
+    own Google account (i.e. only the developer) — anyone else opening
+    the link sees a blank/permission-denied page, because a newly
+    created secondary calendar defaults to private. Idempotent: inserting
+    an ACL rule that already exists just raises a 409/"already exists"
+    error, which is caught and ignored.
+    """
+    global _calendar_public_checked
+    if _calendar_public_checked:
+        return
+    try:
+        service.acl().insert(
+            calendarId=_PUBLIC_CALENDAR_ID,
+            body={"role": "reader", "scope": {"type": "default"}},
+        ).execute()
+    except Exception as e:
+        print(f"[Calendar] ACL already public or check failed (non-fatal): {e}")
+    _calendar_public_checked = True
+
+
+def _find_existing_event(service, anime_title: str, start_utc: datetime) -> dict | None:
+    """
+    Look for an event already on the shared calendar for this anime around
+    this airtime, so repeated requests — e.g. two different users asking
+    about the same upcoming episode — reuse one shared event and its link
+    instead of writing a fresh duplicate into the calendar every time.
+    """
+    window_start = (start_utc - timedelta(hours=12)).isoformat()
+    window_end = (start_utc + timedelta(hours=12)).isoformat()
+    try:
+        results = service.events().list(
+            calendarId=_PUBLIC_CALENDAR_ID,
+            timeMin=window_start,
+            timeMax=window_end,
+            q=anime_title,
+            singleEvents=True,
+        ).execute()
+        items = results.get("items", [])
+        return items[0] if items else None
+    except Exception as e:
+        print(f"[Calendar] Duplicate check failed (non-fatal): {e}")
+        return None
+
+
 @tool
 def google_calendar_add(
     anime_title: str,
@@ -120,17 +183,30 @@ def google_calendar_add(
         utc_e = utc_s + timedelta(minutes=25)
         air = nxt.astimezone(_IST).strftime("%A, %d %B %Y at %H:%M IST")
 
+        _ensure_calendar_is_public(service)
+
+        existing = _find_existing_event(service, anime_title, utc_s)
+        if existing:
+            return (
+                f"Already on the Public Anime Calendar (added by an "
+                f"earlier request).\n"
+                f"Title: {anime_title}\n"
+                f"Time: {air}\n"
+                f"Link: {existing.get('htmlLink')}"
+            )
+
         event = {
             "summary": f"{anime_title} — New Episode",
             "description": "Added by Anime Bot.",
             "start": {"dateTime": utc_s.isoformat(), "timeZone": "UTC"},
             "end": {"dateTime": utc_e.isoformat(), "timeZone": "UTC"},
+            "visibility": "public",
             "reminders": {
                 "useDefault": False,
                 "overrides": [{"method": "popup", "minutes": 15}],
             },
         }
-        created = service.events().insert(calendarId="c0683492932a088b94531c3e63a1523e81cb02ad7ed9c35ac5cc2711b70d99dd@group.calendar.google.com", body=event).execute()
+        created = service.events().insert(calendarId=_PUBLIC_CALENDAR_ID, body=event).execute()
         return (
             f"Event created on the Public Anime Calendar.\n"
             f"Title: {anime_title}\n"
