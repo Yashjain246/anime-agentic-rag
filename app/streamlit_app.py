@@ -16,6 +16,7 @@ Features:
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tempfile
 import uuid
@@ -396,6 +397,21 @@ def _intent_badge(intent: str) -> str:
     cls = _INTENT_BADGE_CLASSES.get(intent, "badge-general")
     label = intent.replace("_", " ").title()
     return f'<span class="intent-badge {cls}">{label}</span>'
+
+# ── Helper: make bare URLs (e.g. a Google Calendar event link) clickable ──────
+# The bot-bubble is injected as raw HTML (unsafe_allow_html=True on a plain
+# f-string), not parsed as markdown — so even when the LLM correctly includes
+# a URL verbatim in its reply, it would otherwise just sit there as
+# unclickable plain text instead of an actual link the user can open.
+_URL_PATTERN = re.compile(r'(https?://[^\s<>"]+)')
+
+
+def _linkify(text: str) -> str:
+    return _URL_PATTERN.sub(
+        r'<a href="\1" target="_blank" rel="noopener noreferrer" '
+        r'style="color:#93c5fd; text-decoration:underline;">\1</a>',
+        text,
+    )
 
 # ── Helper: agent step list — spinner while running, animated checkmark once
 # done ──────────────────────────────────────────────────────────────────────
@@ -895,11 +911,10 @@ for msg in st.session_state.messages:
             if msg.get("intent"):
                 st.markdown(_intent_badge(msg["intent"]), unsafe_allow_html=True)
             st.markdown(
-                f'<div class="bot-bubble">{msg["content"]}</div>',
+                f'<div class="bot-bubble">{_linkify(msg["content"])}</div>',
                 unsafe_allow_html=True,
             )
             # Try to extract an image path from the text just in case it wasn't explicitly saved
-            import re
             png_match = re.search(r'([A-Za-z]:\\[^\s]+\.png|/[^\s]+\.png)', msg["content"])
             img_path = msg.get("image") or (png_match.group(1) if png_match else None)
             
@@ -1185,7 +1200,6 @@ if user_input:
             st.session_state.last_intent = intent
 
             # Clean up markdown images from reply just in case
-            import re
             clean_reply = re.sub(r'!\[.*?\]\(.*?\)', '', reply).strip()
 
             # If a tool generated a chart, extract directly from retrieved_context
@@ -1220,9 +1234,12 @@ if user_input:
                     unsafe_allow_html=True,
                 )
                 _time.sleep(0.025)
-            # Final render without cursor
+            # Final render without cursor — linkify here (not in the
+            # word-by-word loop above) so a URL reads as plain text while
+            # streaming in and becomes clickable the instant streaming
+            # finishes, rather than needing per-frame regex work.
             response_placeholder.markdown(
-                badge + f'<div class="bot-bubble">{clean_reply}</div>',
+                badge + f'<div class="bot-bubble">{_linkify(clean_reply)}</div>',
                 unsafe_allow_html=True,
             )
 

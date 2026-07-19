@@ -92,6 +92,21 @@ def build_tool_prompt(persona_text: str, context: str) -> str:
             "calendar?\"). If the anime isn't currently airing, there's "
             "nothing to add — don't offer to add it.\n"
         )
+    link_instruction = ""
+    if "link:" in context.lower():
+        link_instruction = (
+            "\nThe tool result contains a 'Link:' line — that's the URL to "
+            "the calendar event on the shared Public Anime Calendar. The "
+            "app doesn't have permission to add events directly to the "
+            "user's own calendar, so this link is the only way they can "
+            "actually get it onto theirs (they open it, then use Google "
+            "Calendar's own 'copy to my calendar' option). You MUST paste "
+            "that exact URL into your response, verbatim, character for "
+            "character — never paraphrase it, shorten it, or describe it "
+            "as 'the link' without showing it. A response that says an "
+            "event was added but doesn't show this URL is useless to the "
+            "user and incomplete — always include it.\n"
+        )
     return (
         f"{persona_text}\n\n"
         "Relay the following tool result to the user in a natural, "
@@ -104,6 +119,7 @@ def build_tool_prompt(persona_text: str, context: str) -> str:
         "'error', 'not found'), say plainly that it didn't work rather than "
         "claiming success — never describe an action as completed when the "
         "result shows it failed.\n"
+        f"{link_instruction}"
         f"{calendar_offer}\n"
         f"TOOL RESULT:\n{context}"
     )
