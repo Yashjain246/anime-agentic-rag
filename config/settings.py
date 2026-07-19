@@ -20,24 +20,6 @@ DATA_DIR_DEFAULT = PROJECT_ROOT / "data"
 load_dotenv(PROJECT_ROOT / ".env")
 
 
-def _detect_device() -> str:
-    """
-    Auto-detect the best available compute device.
-    Prefers CUDA (NVIDIA GPU) — falls back to CPU if unavailable or torch
-    is not installed. Can always be overridden via EMBEDDING_DEVICE in .env.
-    """
-    try:
-        import torch
-        if torch.cuda.is_available():
-            gpu = torch.cuda.get_device_name(0)
-            print(f"[GPU] {gpu} detected -- using CUDA for embeddings")
-            return "cuda"
-    except Exception:
-        pass
-    print("[CPU] No GPU detected -- falling back to CPU for embeddings")
-    return "cpu"
-
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
@@ -93,13 +75,8 @@ class Settings(BaseSettings):
 
     # ── Model configuration ───────────────────────────────────────────────────
     LORE_EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-en-v1.5")
-    RECS_EMBEDDING_MODEL: str = Field(default="BAAI/bge-large-en-v1.5")
-    EMBEDDING_DEVICE: str = Field(
-        default_factory=_detect_device,
-        description="Compute device for embeddings: 'cuda' (GPU) or 'cpu'. "
-                    "Auto-detected at startup — override via EMBEDDING_DEVICE in .env.",
-    )
-    RERANKER_MODEL: str = Field(default="BAAI/bge-reranker-base")
+    RECS_EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-en-v1.5")
+    RERANKER_MODEL: str = Field(default="ms-marco-MiniLM-L-12-v2")
     LLM_MODEL: str = Field(default="gemini-3.1-flash-lite")
     QUERY_GEN_TEMPERATURE: float = Field(default=0.0)
     AGENT_TEMPERATURE: float = Field(default=0.7)

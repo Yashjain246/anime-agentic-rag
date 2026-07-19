@@ -141,7 +141,7 @@ def test_chat_history_importable():
 def test_chat_history_create_session(tmp_path):
     """Creates a session and loads its (empty) history without error."""
     from src.db.chat_history import ChatHistoryDB
-    db = ChatHistoryDB(db_path=tmp_path / "test.db")
+    db = ChatHistoryDB(db_url=tmp_path / "test.db")
     sid = db.create_session()
     assert len(sid) > 0
     history = db.load_history(sid)

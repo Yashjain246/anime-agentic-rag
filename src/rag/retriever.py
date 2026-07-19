@@ -8,20 +8,25 @@ Pipeline layers:
   2. EnsembleRetriever    → 60% ChromaDB (dense) + 40% BM25 (sparse)
   3. ChromaDB filter      → hard chapter cap at DB level (spoiler firewall)
   4. BM25 post-filter     → same cap applied after BM25 retrieval
-  5. CrossEncoderReranker → reranks all candidates by true relevance
+  5. FlashrankRerank      → reranks all candidates by true relevance
 
 WHY filter at the DB level (not post-retrieval):
   If the filter were applied AFTER retrieval, the LLM would still SEE
   the spoiler chunks — it just wouldn't use them. By filtering at the
   ChromaDB metadata level, those vectors are never even scored.
+
+WHY FlashrankRerank instead of a HuggingFace CrossEncoderReranker:
+  Same reason as src/rag/embeddings.py — a torch-based cross-encoder
+  costs hundreds of MB just to import, on top of the ~1GB torch +
+  sentence-transformers already avoided for embeddings. FlashRank runs
+  a small ONNX cross-encoder with no torch dependency at all.
 """
 
 from __future__ import annotations
 
 from langchain_classic.retrievers import EnsembleRetriever, MultiQueryRetriever
 from langchain_classic.retrievers import ContextualCompressionRetriever
-from langchain_classic.retrievers.document_compressors import CrossEncoderReranker
-from langchain_community.cross_encoders import HuggingFaceCrossEncoder
+from langchain_community.document_compressors import FlashrankRerank
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.prompts import PromptTemplate
@@ -50,15 +55,16 @@ Original question: {question}
 2 search queries:""",
 )
 
-# ── Cross-encoder singleton ───────────────────────────────────────────────────
-_cross_encoder: HuggingFaceCrossEncoder | None = None
+# ── Reranker singleton ────────────────────────────────────────────────────────
+_reranker: FlashrankRerank | None = None
 
 
-def _get_cross_encoder() -> HuggingFaceCrossEncoder:
-    global _cross_encoder
-    if _cross_encoder is None:
-        _cross_encoder = HuggingFaceCrossEncoder(model_name=settings.RERANKER_MODEL)
-    return _cross_encoder
+def _get_reranker(top_n: int) -> FlashrankRerank:
+    global _reranker
+    if _reranker is None:
+        _reranker = FlashrankRerank(model=settings.RERANKER_MODEL, top_n=top_n)
+    _reranker.top_n = top_n
+    return _reranker
 
 
 # ── Filtered BM25 wrapper ─────────────────────────────────────────────────────
@@ -154,11 +160,8 @@ def build_retriever(
         prompt=MULTI_QUERY_PROMPT,
     )
 
-    # ── CrossEncoder reranker: final sorting by true relevance ───────────────
+    # ── FlashRank reranker: final sorting by true relevance ──────────────────
     return ContextualCompressionRetriever(
-        base_compressor=CrossEncoderReranker(
-            model=_get_cross_encoder(),
-            top_n=top_n,
-        ),
+        base_compressor=_get_reranker(top_n),
         base_retriever=multi_query,
     )

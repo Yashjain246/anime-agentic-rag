@@ -23,13 +23,13 @@ A production-ready **agentic RAG (Retrieval-Augmented Generation)** system for a
 |---------|---------|
 | 🗺️ **Agentic routing** | LangGraph state machine — LORE / RECOMMEND / TOOL / GENERAL |
 | 📖 **Spoiler firewall** | ChromaDB metadata filter at DB level (not post-retrieval) |
-| 🔍 **Hybrid RAG** | MultiQuery → 60% dense + 40% BM25 → CrossEncoder reranker |
+| 🔍 **Hybrid RAG** | MultiQuery → 60% dense + 40% BM25 → FlashRank reranker |
 | 🎭 **738 character personas** | Dynamic persona engine from extracted personality data |
 | 📺 **Episode→chapter mapping** | "I'm on episode 45 of Demon Slayer" → chapter cap auto-set |
 | 🔧 **5 tools** | trace.moe, OMDB ratings, Jikan schedule, Tavily news, Google Calendar |
 | 💾 **Persistent chat history** | SQLite locally, PostgreSQL (Supabase) in production |
 | 📊 **LangSmith tracing** | Full observability — set `LANGSMITH_TRACING=true` |
-| ⚡ **Instant startup** | Lazy embedding loading — 1.3GB model loads only when needed |
+| ⚡ **Lightweight footprint** | fastembed + flashrank (ONNX, no torch/GPU) — ~850MB peak RSS |
 
 ## Anime Coverage
 
@@ -46,8 +46,7 @@ A production-ready **agentic RAG (Retrieval-Augmented Generation)** system for a
 
 ### 1. Prerequisites
 
-- Windows with NVIDIA GPU (RTX 2050+) — or CPU (slower)
-- Python 3.11 installed
+- Python 3.11 installed (no GPU required — embeddings and reranking run on CPU via ONNX)
 
 ### 2. Clone & Setup
 
@@ -56,7 +55,7 @@ A production-ready **agentic RAG (Retrieval-Augmented Generation)** system for a
 python -m venv .venv
 .venv\Scripts\activate
 
-# Install dependencies (CUDA 12.1 PyTorch included)
+# Install dependencies
 pip install -r requirements.txt
 ```
 
@@ -92,7 +91,7 @@ anime-rag/
 ├── app/
 │   └── streamlit_app.py         # Streamlit frontend (UI + agent integration)
 ├── config/
-│   └── settings.py              # Central config (pydantic-settings, GPU auto-detect)
+│   └── settings.py              # Central config (pydantic-settings)
 ├── data/                        # JSONL files + ChromaDB ZIPs (gitignored)
 │   ├── manga_chapters (3).jsonl
 │   ├── anime_desc (1).jsonl
@@ -109,6 +108,8 @@ anime-rag/
 │   └── README.md                # Notebook index + src/ mapping
 ├── scripts/
 │   ├── copy_data.py             # Copy data from old project
+│   ├── rebuild_lore_db.py       # Rebuild chroma_anime_db from manga_chapters JSONL
+│   ├── rebuild_recs_db.py       # Rebuild chroma_recs_db from anime_desc JSONL
 │   └── calendar_auth.py         # One-time Google Calendar OAuth
 ├── src/
 │   ├── agent/
@@ -117,10 +118,10 @@ anime-rag/
 │   │   ├── graph.py             # Graph wiring + compilation
 │   │   └── runner.py            # Public run_agent_with_state() API
 │   ├── rag/
-│   │   ├── embeddings.py        # Lazy BGE embedding singleton
+│   │   ├── embeddings.py        # Lazy fastembed (ONNX) embedding singleton
 │   │   ├── vectorstores.py      # Lazy ChromaDB loaders (auto-unzip)
 │   │   ├── bm25_index.py        # BM25 in-memory index
-│   │   └── retriever.py         # 5-layer RAG pipeline
+│   │   └── retriever.py         # 5-layer RAG pipeline (FlashRank reranker)
 │   ├── tools/
 │   │   ├── trace_moe.py         # Screenshot anime identifier
 │   │   ├── omdb.py              # Episode ratings chart generator
@@ -137,7 +138,7 @@ anime-rag/
 │   └── test_smoke.py            # Import + logic smoke tests (no API calls)
 ├── .env.example                 # API key template
 ├── requirements.txt
-├── DEPLOYMENT.md                # Render + Supabase deployment guide
+├── DEPLOYMENT.md                # Streamlit Community Cloud + Supabase deployment guide
 └── README.md
 ```
 
@@ -162,7 +163,7 @@ python scripts/calendar_auth.py
 ENABLE_CALENDAR_TOOL=true
 ```
 
-## Deployment (Render + Supabase)
+## Deployment (Streamlit Community Cloud + Supabase)
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for full deployment guide.
 
@@ -188,8 +189,9 @@ User Message
 
 ## Key Design Decisions
 
-- **Lazy loading**: The 1.3GB embedding model loads only on the first LORE/RECOMMEND query — startup is instant
+- **Lazy loading**: The embedding model loads only on the first LORE/RECOMMEND query — startup is instant
+- **Torch-free retrieval**: Embeddings (fastembed) and reranking (flashrank) both run on ONNX Runtime instead of torch/sentence-transformers, cutting peak memory from ~2.5-3GB to ~850MB — the difference between getting killed on Streamlit Cloud's 1GB free tier and fitting comfortably
 - **Pydantic router**: `RouterOutput(intent: Literal['LORE','RECOMMEND','TOOL','GENERAL'])` — no silent misclassification
 - **Configurable tool loop**: `MAX_TOOL_ITERATIONS=5` prevents infinite loops while supporting multi-step chains
 - **DB-level spoiler filter**: ChromaDB metadata filter means spoiler chapters are never even scored
-- **Single embedding singleton**: One `HuggingFaceEmbeddings` instance shared by both vector stores
+- **Single embedding singleton**: One `FastEmbedEmbeddings` instance shared by both vector stores

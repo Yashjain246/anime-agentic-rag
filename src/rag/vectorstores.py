@@ -27,10 +27,9 @@ def _ensure_unzipped(zip_path: Path, extract_to: Path) -> None:
     Unzip a ChromaDB archive if the target directory doesn't exist yet.
     Safe to call multiple times — no-op if already extracted.
 
-    Extracts into the *parent* of extract_to so that a ZIP containing a
-    top-level folder named e.g. ``chroma_anime_db/`` lands directly at
-    ``data/chroma_anime_db/`` rather than the nested
-    ``data/chroma_anime_db/chroma_anime_db/``.
+    Both chroma_*.zip archives store their contents flat (chroma.sqlite3
+    and the collection UUID folder at the ZIP root, no wrapping directory),
+    so we extract directly into extract_to.
     """
     if extract_to.exists() and any(extract_to.iterdir()):
         return  # already unzipped
@@ -39,10 +38,10 @@ def _ensure_unzipped(zip_path: Path, extract_to: Path) -> None:
             f"ChromaDB archive not found: {zip_path}\n"
             f"Place it at: {zip_path}"
         )
-    extract_to.parent.mkdir(parents=True, exist_ok=True)
-    print(f"Extracting {zip_path.name} → {extract_to.parent} ...")
+    extract_to.mkdir(parents=True, exist_ok=True)
+    print(f"Extracting {zip_path.name} -> {extract_to} ...")
     with zipfile.ZipFile(zip_path, "r") as zf:
-        zf.extractall(extract_to.parent)   # ← extract to parent, not into target
+        zf.extractall(extract_to)
     print(f"[Extracted] {zip_path.name}")
 
 
