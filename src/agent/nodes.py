@@ -209,9 +209,18 @@ def episode_node(state: AgentState) -> dict:
 
 # ── NODE 1: Router ────────────────────────────────────────────────────────────
 _GENERAL_SHORTCUTS = {
-    # Exact or startswith short phrases that are obviously GENERAL
-    "hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "cool", "nice",
-    "yes", "no", "sure", "awesome", "great", "bye", "haha", "lol", "hmm",
+    # Context-independent short phrases that are unambiguously GENERAL no
+    # matter what came before. Deliberately excludes confirmation/agreement
+    # words like "yes", "sure", "ok", "no" — those are only meaningful in
+    # light of what they're replying to (e.g. agreeing to a calendar offer
+    # should route to TOOL, not GENERAL), so they must go through the
+    # history-aware LLM path below rather than this instant shortcut.
+    # Confirmed live: a bare "yes" replying to a calendar offer used to hit
+    # this shortcut, skip the LLM+history entirely, and get misclassified
+    # as GENERAL — the bot then claimed to have "taken note of it" without
+    # ever calling google_calendar_add.
+    "hi", "hello", "hey", "thanks", "thank you", "cool", "nice",
+    "awesome", "great", "bye", "haha", "lol", "hmm",
     "what is my name", "who am i", "do you remember",
 }
 _TOOL_KEYWORDS = [
@@ -221,13 +230,18 @@ _TOOL_KEYWORDS = [
 ]
 _RECOMMEND_KEYWORDS = ["recommend", "suggest", "what should i watch", "similar to", "like aot",
                        "like jjk", "like naruto", "what to watch"]
-_LORE_KEYWORDS = ["what happens", "who is", "who are", "what is the plot", "explain",
-                  "tell me about", "story of", "power of", "ability", "death of"]
 
 def _fast_classify(msg: str) -> str | None:
-    """Return intent instantly for obvious cases, None if unsure (LLM needed)."""
+    """Return intent instantly for obvious cases, None if unsure (LLM needed).
+
+    Note: no longer short-circuits on message length alone. A blanket
+    "<=2 words → GENERAL" rule used to run before the keyword checks below,
+    which meant even a 2-word TOOL confirmation like "add it" was decided
+    before it ever got a chance to match anything — same root cause as the
+    "yes" bug above, just for slightly longer replies.
+    """
     lower = msg.lower().strip()
-    if lower in _GENERAL_SHORTCUTS or len(lower.split()) <= 2:
+    if lower in _GENERAL_SHORTCUTS:
         return "GENERAL"
     for kw in _TOOL_KEYWORDS:
         if kw in lower:
