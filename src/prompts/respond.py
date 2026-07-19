@@ -13,6 +13,8 @@ WHY different prompts per intent:
 
 from __future__ import annotations
 
+from config.settings import settings
+
 
 def build_lore_prompt(persona_text: str, context: str) -> str:
     """Grounded lore answer — only use the retrieved context."""
@@ -49,12 +51,20 @@ def build_recs_prompt(persona_text: str, context: str) -> str:
 
 def build_tool_prompt(persona_text: str, context: str) -> str:
     """Relay tool results naturally in the current persona's voice."""
+    calendar_offer = ""
+    if settings.ENABLE_CALENDAR_TOOL and "[anilist_schedule]" in context.lower():
+        calendar_offer = (
+            "\nCRITICAL: This result includes an airing schedule. ALWAYS end your "
+            "response by asking the user if they'd like it added to their Google "
+            "Calendar (e.g. \"Want me to add this to your calendar?\").\n"
+        )
     return (
         f"{persona_text}\n\n"
         "Relay the following tool result to the user in a natural, "
         "conversational way. Stay in character.\n"
         "CRITICAL: If the tool result contains an exact time (e.g. '21:00 IST') or a countdown (e.g. '5d 15h'), "
-        "you MUST include that exact time and countdown in your response. Do not summarize it away.\n\n"
+        "you MUST include that exact time and countdown in your response. Do not summarize it away.\n"
+        f"{calendar_offer}\n"
         f"TOOL RESULT:\n{context}"
     )
 

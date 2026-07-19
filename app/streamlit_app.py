@@ -611,15 +611,19 @@ for msg in st.session_state.messages:
 # ─────────────────────────────────────────────────────────────────────────────
 import random as _random
 
-# Pool — one question randomly picked per category each session
+# Pool — one question randomly picked per category each session.
+# Curated to only include questions this app actually answers well:
+# LORE is restricted to the 4 anime actually indexed in the Lore DB
+# (src/episode/normalizer.py SUPPORTED_ANIME) — anything else falls
+# outside the retriever's coverage and produces weak/irrelevant
+# grounding. RECS entries are spot-checked against the recs vector
+# store; overly abstract prompts ("best anime for beginners") were
+# dropped after producing unfocused, low-relevance matches.
 _LORE_POOL = [
     "What happens to Gojo in Shibuya?",
     "What is Gojo Satoru's Six Eyes and Infinity technique?",
     "What happens to Eren Yeager at the end of Attack on Titan?",
     "How does Tanjiro unlock the Sun Breathing style?",
-    "Who killed Itachi Uchiha and why?",
-    "What is the One Piece and who is Joy Boy?",
-    "Explain the Nen system from Hunter x Hunter",
     "What is Chainsaw Man's contract devil power?",
 ]
 _REC_POOL = [
@@ -628,13 +632,18 @@ _REC_POOL = [
     "What should I watch after Fullmetal Alchemist Brotherhood?",
     "Suggest anime similar to Demon Slayer",
     "Recommend anime with strong female leads",
-    "Best anime for someone new to the genre?",
 ]
-_TOOL_POOL = [
+_SCHEDULE_POOL = [
     "When does JJK next episode air?",
     "When does the next episode of One Piece air?",
     "When does Chainsaw Man next air?",
     "What time does My Hero Academia broadcast?",
+]
+_RATINGS_POOL = [
+    "Show me the episode ratings for Death Note",
+    "What are Attack on Titan's episode ratings?",
+    "Show me Jujutsu Kaisen's ratings chart",
+    "What's Demon Slayer's highest rated episode?",
 ]
 
 if not st.session_state.messages:
@@ -643,10 +652,11 @@ if not st.session_state.messages:
         st.session_state.suggestion_picks = [
             _random.choice(_LORE_POOL),
             _random.choice(_REC_POOL),
-            _random.choice(_TOOL_POOL),
+            _random.choice(_SCHEDULE_POOL),
+            _random.choice(_RATINGS_POOL),
         ]
 
-    lore_q, rec_q, tool_q = st.session_state.suggestion_picks
+    lore_q, rec_q, schedule_q, ratings_q = st.session_state.suggestion_picks
 
     # Original welcome screen HTML (design unchanged)
     st.markdown(f"""
@@ -657,11 +667,12 @@ if not st.session_state.messages:
                    -webkit-text-fill-color:transparent;">
           Ready to explore the anime world
         </h3>
-        <p style="font-size:0.9rem; max-width:500px; margin:0 auto; line-height:1.7; color:#94a3b8;">
+        <p style="font-size:0.9rem; max-width:560px; margin:0 auto; line-height:1.7; color:#94a3b8;">
           Ask about <b style="color:#a855f7">plot &amp; lore</b>,
           get <b style="color:#34d399">recommendations</b>,
           check <b style="color:#fbbf24">airing schedules</b>,
-          or identify a <b style="color:#60a5fa">screenshot</b>.<br><br>
+          see <b style="color:#60a5fa">episode ratings</b>,
+          or identify a screenshot.<br><br>
           Set your episode in the sidebar for <b style="color:#f472b6">spoiler-safe</b> answers.
         </p>
       </div>
@@ -684,7 +695,7 @@ if not st.session_state.messages:
     </style>
     """, unsafe_allow_html=True)
 
-    lore_col, rec_col, tool_col = st.columns(3)
+    lore_col, rec_col, schedule_col, ratings_col = st.columns(4)
     with lore_col:
         st.markdown("""<style>
           div[data-testid="stHorizontalBlock"] > div:nth-child(1) button {
@@ -709,7 +720,7 @@ if not st.session_state.messages:
             st.session_state._pending_msg = rec_q
             st.rerun()
 
-    with tool_col:
+    with schedule_col:
         st.markdown("""<style>
           div[data-testid="stHorizontalBlock"] > div:nth-child(3) button {
             background: rgba(245,158,11,0.1) !important;
@@ -717,8 +728,20 @@ if not st.session_state.messages:
             color: #fbbf24 !important;
           }
         </style>""", unsafe_allow_html=True)
-        if st.button(f"{tool_q}", key="pill_tool", use_container_width=True):
-            st.session_state._pending_msg = tool_q
+        if st.button(f"{schedule_q}", key="pill_schedule", use_container_width=True):
+            st.session_state._pending_msg = schedule_q
+            st.rerun()
+
+    with ratings_col:
+        st.markdown("""<style>
+          div[data-testid="stHorizontalBlock"] > div:nth-child(4) button {
+            background: rgba(59,130,246,0.1) !important;
+            border: 1px solid rgba(59,130,246,0.3) !important;
+            color: #60a5fa !important;
+          }
+        </style>""", unsafe_allow_html=True)
+        if st.button(f"{ratings_q}", key="pill_ratings", use_container_width=True):
+            st.session_state._pending_msg = ratings_q
             st.rerun()
 
 
