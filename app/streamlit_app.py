@@ -489,6 +489,52 @@ if (
 ):
     _how_it_works_dialog()
 
+# ── Season → absolute episode conversion ───────────────────────────────────────
+# Best-effort season boundaries from general knowledge, cross-checked where
+# possible against the actual max episode number in episode_mapping.jsonl
+# (e.g. Demon Slayer's 26+18+11+8=63 and Attack on Titan's 25+12+22+30=89
+# both match the data exactly). NOT guaranteed precise, especially for a
+# newer/still-airing season (Jujutsu Kaisen Season 3's boundary is the least
+# certain of these) — this is a convenience layer on top of the exact
+# "Current Episode" number field, not a replacement for it. If a season+
+# episode selection looks wrong, use the exact overall episode number instead.
+_SEASON_BOUNDARIES: dict[str, list[tuple[str, int]]] = {
+    "Demon Slayer": [
+        ("Season 1", 26),
+        ("Season 2 (Entertainment District)", 18),
+        ("Season 3 (Swordsmith Village)", 11),
+        ("Season 4 (Hashira Training)", 8),
+    ],
+    "Jujutsu Kaisen": [
+        ("Season 1", 24),
+        ("Season 2", 23),
+        ("Season 3", 12),
+    ],
+    "Attack on Titan": [
+        ("Season 1", 25),
+        ("Season 2", 12),
+        ("Season 3", 22),
+        ("Season 4 (Final Season)", 30),
+    ],
+    "Chainsaw Man": [
+        ("Season 1", 12),
+    ],
+}
+
+
+def _season_to_absolute_episode(anime_name: str, season_label: str, ep_in_season: int) -> int | None:
+    """e.g. ("Demon Slayer", "Season 2 (Entertainment District)", 3) → 29."""
+    seasons = _SEASON_BOUNDARIES.get(anime_name)
+    if not seasons:
+        return None
+    absolute_before = 0
+    for label, count in seasons:
+        if label == season_label:
+            return absolute_before + ep_in_season
+        absolute_before += count
+    return None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SIDEBAR
 # ─────────────────────────────────────────────────────────────────────────────
@@ -534,23 +580,70 @@ with st.sidebar:
     )
     st.session_state.anime_name = "" if selected_anime == "(All Anime)" else selected_anime
 
-    col1, col2 = st.columns([3, 2])
-    with col1:
-        ep_input = st.number_input(
-            "Current Episode",
-            min_value=0, max_value=1000, value=0, step=1,
-            help="Set your episode progress for spoiler protection",
+    # Most viewers track progress as "season 2, episode 5", not a single
+    # running total — offer season+episode when we have boundary data for
+    # the selected anime, falling back to the exact overall-episode input
+    # (still the authoritative field) otherwise or via the expander below.
+    season_data = _SEASON_BOUNDARIES.get(st.session_state.anime_name)
+
+    if season_data:
+        season_labels = [label for label, _ in season_data]
+        season_counts = dict(season_data)
+
+        season_col, ep_col = st.columns([3, 2])
+        with season_col:
+            selected_season = st.selectbox(
+                "Season", options=season_labels, key="season_select",
+            )
+        with ep_col:
+            ep_in_season = st.number_input(
+                "Episode", min_value=1, max_value=season_counts[selected_season],
+                value=1, step=1, key="ep_in_season_input",
+            )
+
+        ep_input = _season_to_absolute_episode(
+            st.session_state.anime_name, selected_season, ep_in_season
         )
-    with col2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("Set", use_container_width=True, key="set_ep") and ep_input > 0:
-            if st.session_state.anime_name:
-                # Inject episode update as a user message
-                st.session_state._pending_episode_msg = (
-                    f"I'm on episode {ep_input} of {st.session_state.anime_name}"
+        st.caption(
+            f"= episode {ep_input} overall. Season boundaries are "
+            "best-effort — use the exact episode number below if this "
+            "looks off."
+        )
+        if st.button("Set", use_container_width=True, key="set_ep_season"):
+            st.session_state._pending_episode_msg = (
+                f"I'm on episode {ep_input} of {st.session_state.anime_name}"
+            )
+
+        with st.expander("Enter exact overall episode instead"):
+            exact_col1, exact_col2 = st.columns([3, 2])
+            with exact_col1:
+                exact_ep = st.number_input(
+                    "Overall episode", min_value=0, max_value=1000, value=0,
+                    step=1, key="exact_ep_input", label_visibility="collapsed",
                 )
-            else:
-                st.warning("Select an anime first")
+            with exact_col2:
+                if st.button("Set", use_container_width=True, key="set_ep_exact") and exact_ep > 0:
+                    st.session_state._pending_episode_msg = (
+                        f"I'm on episode {exact_ep} of {st.session_state.anime_name}"
+                    )
+    else:
+        col1, col2 = st.columns([3, 2])
+        with col1:
+            ep_input = st.number_input(
+                "Current Episode",
+                min_value=0, max_value=1000, value=0, step=1,
+                help="Set your episode progress for spoiler protection",
+            )
+        with col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Set", use_container_width=True, key="set_ep") and ep_input > 0:
+                if st.session_state.anime_name:
+                    # Inject episode update as a user message
+                    st.session_state._pending_episode_msg = (
+                        f"I'm on episode {ep_input} of {st.session_state.anime_name}"
+                    )
+                else:
+                    st.warning("Select an anime first")
 
     spoiler_mode = st.toggle(
         "Spoiler Mode (see everything)",
