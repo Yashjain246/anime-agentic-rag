@@ -41,6 +41,9 @@ from src.db.chat_history import get_db
 from src.episode.normalizer import get_all_canonical_names
 from src.persona.character_db import get_character_db
 from PIL import Image
+import pillow_heif
+
+pillow_heif.register_heif_opener()  # lets PIL.Image.open() decode HEIC/HEIF uploads
 
 settings.setup_langsmith()
 settings.ensure_dirs()
@@ -162,6 +165,48 @@ st.markdown("""
     50%       { opacity: 0.4; transform: scale(0.8); }
   }
 
+  /* ── Agent step list — spinning circle while a step runs, then a
+     green checkmark once it's done, inside the "Agent thinking..."
+     status container ── */
+  .step-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.15rem 0;
+  }
+  .step-row {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    font-size: 0.85rem;
+    color: #cbd5e1;
+  }
+  .step-row.step-active { color: #e8e8f0; }
+  .step-icon {
+    flex-shrink: 0;
+    width: 1.05rem;
+    height: 1.05rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .step-spinner {
+    border: 2px solid rgba(139,92,246,0.25);
+    border-top-color: #a855f7;
+    animation: step-spin 0.7s linear infinite;
+  }
+  @keyframes step-spin {
+    to { transform: rotate(360deg); }
+  }
+  .step-check {
+    background: linear-gradient(135deg, #10b981, #34d399);
+    color: #052e1d;
+    font-size: 0.62rem;
+    font-weight: 700;
+    box-shadow: 0 0 8px rgba(16,185,129,0.5);
+  }
+
   /* ── Intent badge ── */
   .intent-badge {
     display: inline-flex;
@@ -275,6 +320,7 @@ def _init_session():
         "last_intent": "",
         "image_path": None,
         "suggestion_picks": None, # random picks stable per session
+        "seen_intro": False,      # whether the "How it works" dialog has been dismissed
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -283,19 +329,34 @@ def _init_session():
 _init_session()
 
 # ── Helper: intent badge HTML ─────────────────────────────────────────────────
-_INTENT_ICONS = {
-    "LORE": ("", "badge-lore"),
-    "RECOMMEND": ("", "badge-recommend"),
-    "TOOL": ("", "badge-tool"),
-    "GENERAL": ("", "badge-general"),
-    "PERSONA_SWITCH": ("", "badge-persona"),
-    "EPISODE_UPDATE": ("", "badge-persona"),
+_INTENT_BADGE_CLASSES = {
+    "LORE": "badge-lore",
+    "RECOMMEND": "badge-recommend",
+    "TOOL": "badge-tool",
+    "GENERAL": "badge-general",
+    "PERSONA_SWITCH": "badge-persona",
+    "EPISODE_UPDATE": "badge-persona",
 }
 
 def _intent_badge(intent: str) -> str:
-    icon, cls = _INTENT_ICONS.get(intent, ("", "badge-general"))
+    cls = _INTENT_BADGE_CLASSES.get(intent, "badge-general")
     label = intent.replace("_", " ").title()
-    return f'<span class="intent-badge {cls}">{icon} {label}</span>'
+    return f'<span class="intent-badge {cls}">{label}</span>'
+
+# ── Helper: agent step list — spinner while running, checkmark once done ──────
+def _render_steps_html(steps: list[str], in_progress: bool) -> str:
+    last_idx = len(steps) - 1
+    rows = []
+    for i, label in enumerate(steps):
+        is_active = in_progress and i == last_idx
+        icon = (
+            '<span class="step-icon step-spinner"></span>'
+            if is_active
+            else '<span class="step-icon step-check">&#10003;</span>'
+        )
+        row_cls = "step-row step-active" if is_active else "step-row step-done"
+        rows.append(f'<div class="{row_cls}">{icon}<span class="step-label">{label}</span></div>')
+    return f'<div class="step-list">{"".join(rows)}</div>'
 
 # ── Helper: start new session ────────────────────────────────────────────────
 def _new_session():
@@ -305,6 +366,50 @@ def _new_session():
     st.session_state.lc_messages = []
     st.session_state.last_intent = ""
     st.session_state.image_path = None
+
+# ── "How it works" onboarding dialog ──────────────────────────────────────────
+@st.dialog("How it works", width="large")
+def _how_it_works_dialog():
+    st.markdown("""
+    <div style="line-height:1.9; font-size:0.95rem;">
+      <p><b style="color:#a855f7">1. Just ask</b> — type anything in the chat
+      box: plot &amp; lore questions, "suggest anime like X", airing
+      schedules, episode ratings charts, or just casual anime chat.</p>
+      <p><b style="color:#60a5fa">2. Set your anime &amp; episode</b>
+      (sidebar) — this keeps lore answers spoiler-safe for anything beyond
+      where you've read or watched.</p>
+      <p><b style="color:#f472b6">3. Pick a persona</b> (sidebar) — have the
+      bot talk as one of 738 characters instead of its default voice.</p>
+      <p><b style="color:#fbbf24">4. Upload a screenshot</b> (sidebar) — find
+      out what anime and episode it's from.</p>
+      <p><b style="color:#34d399">5. Airing soon?</b> — when the bot gives
+      you a broadcast time, it'll offer to add it straight to your Google
+      Calendar.</p>
+      <p style="color:#94a3b8; font-size:0.85rem; margin-top:1rem;">Your
+      chat history saves automatically to this browser — reopen an old
+      conversation or start a new one anytime from the sidebar.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    if st.button("Got it, let's start", type="primary", use_container_width=True):
+        st.session_state.seen_intro = True
+        st.rerun()
+
+
+def _is_returning_user() -> bool:
+    """True if this anon browser identity already has saved chat history —
+    used to only auto-open the intro for genuinely first-time visitors,
+    not on every reload of an already-familiar user's empty "New Chat"."""
+    try:
+        return len(get_db().list_sessions(user_id=st.session_state.anon_user_id)) > 0
+    except Exception:
+        return True  # DB unreachable — don't nag with the intro
+
+if (
+    not st.session_state.seen_intro
+    and not st.session_state.messages
+    and not _is_returning_user()
+):
+    _how_it_works_dialog()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SIDEBAR
@@ -320,6 +425,9 @@ with st.sidebar:
       <p style="color:#475569; font-size:0.75rem; margin:0;">Agentic • RAG • Spoiler-Safe</p>
     </div>
     """, unsafe_allow_html=True)
+
+    if st.button("How it works", use_container_width=True, key="how_it_works_btn"):
+        _how_it_works_dialog()
 
     st.divider()
 
@@ -382,19 +490,32 @@ with st.sidebar:
     st.markdown('<div class="sidebar-title">Persona</div>', unsafe_allow_html=True)
 
     db_chars = get_character_db()
+    # Full list, not capped: a selectbox with a couple hundred extra plain
+    # strings is not a real perf concern, and capping it previously meant
+    # ~4 in 5 characters (anything past the cutoff alphabetically) weren't
+    # even selectable here at all — see the sync note below for why that
+    # combination was actively breaking chat-triggered persona switches.
     char_names = ["Default"] + sorted(
         c.get("name", "") for c in db_chars.values()
         if c.get("name")
-    )[:200]  # cap at 200 for dropdown performance
+    )
 
-    persona_idx = 0
-    if st.session_state.persona in char_names:
-        persona_idx = char_names.index(st.session_state.persona)
+    # A selectbox with key= treats st.session_state[key] as its value on
+    # every rerun after the first, ignoring index= entirely. persona can
+    # also change from elsewhere — a "talk to me like X" chat message
+    # (persona_node) or loading an old session from history — and without
+    # this sync, the *next* rerun's selectbox would silently overwrite
+    # st.session_state.persona back to whatever it last held (confirmed
+    # live: a chat-triggered switch to Satoru Gojo answered correctly once,
+    # then reverted to "Default" as soon as the page rerendered).
+    if st.session_state.get("persona_select") != st.session_state.persona:
+        st.session_state.persona_select = (
+            st.session_state.persona if st.session_state.persona in char_names else "Default"
+        )
 
     selected_persona = st.selectbox(
         "Bot Persona",
         options=char_names,
-        index=persona_idx,
         key="persona_select",
         help="Choose which character the bot should speak as",
     )
@@ -413,21 +534,36 @@ with st.sidebar:
     st.markdown('<div class="sidebar-title">Screenshot ID</div>', unsafe_allow_html=True)
     uploaded_file = st.file_uploader(
         "Upload an anime screenshot",
-        type=["jpg", "jpeg", "png", "webp"],
+        type=["jpg", "jpeg", "png", "webp", "heic", "heif"],
         key="screenshot_upload",
         label_visibility="collapsed",
+        help="iPhone/Mac HEIC screenshots are supported too",
     )
     if uploaded_file:
-        # Save to temp file for trace.moe
-        suffix = Path(uploaded_file.name).suffix
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(uploaded_file.read())
-            st.session_state.image_path = tmp.name
-        st.image(uploaded_file, caption="Uploaded screenshot", use_column_width=True)
-        if st.button("Identify this screenshot", use_container_width=True):
-            st.session_state._pending_screenshot_msg = (
-                "What anime is this screenshot from?"
-            )
+        # Decode through PIL and normalize to JPEG regardless of the source
+        # format. This is what makes HEIC/HEIF (the default format for
+        # iPhone/Mac photos, though Apple's own screenshot tool actually
+        # saves PNG — a HEIC upload here is more likely a photo of a screen
+        # or a converted screenshot) work at all: browsers generally can't
+        # preview HEIC in an <img> tag, and trace.moe's API isn't guaranteed
+        # to accept it, so decoding once with pillow-heif's registered
+        # opener and re-encoding to JPEG sidesteps both problems for every
+        # format uniformly.
+        try:
+            img = Image.open(uploaded_file)
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                img.save(tmp, format="JPEG", quality=92)
+                st.session_state.image_path = tmp.name
+            st.image(img, caption="Uploaded screenshot", use_container_width=True)
+            if st.button("Identify this screenshot", use_container_width=True):
+                st.session_state._pending_screenshot_msg = (
+                    "What anime is this screenshot from?"
+                )
+        except Exception:
+            st.error("Couldn't read that image — try a different file.")
+            st.session_state.image_path = None
     else:
         st.session_state.image_path = None
 
@@ -575,8 +711,10 @@ for msg in st.session_state.messages:
         else:
             if msg.get("steps"):
                 with st.status("Response generated", state="complete"):
-                    for step in msg["steps"]:
-                        st.write(step)
+                    st.markdown(
+                        _render_steps_html(msg["steps"], in_progress=False),
+                        unsafe_allow_html=True,
+                    )
             if msg.get("intent"):
                 st.markdown(_intent_badge(msg["intent"]), unsafe_allow_html=True)
             st.markdown(
@@ -630,6 +768,26 @@ _RATINGS_POOL = [
     "Show me Jujutsu Kaisen's ratings chart",
     "What's Demon Slayer's highest rated episode?",
 ]
+# "Talk to me like X" is recognized by src/persona/detector.py's
+# PERSONA_SWITCH_PATTERNS and actually switches st.session_state.persona
+# (same effect as picking one from the sidebar) — these are confirmed
+# canonical names in the character DB, not just plausible-sounding ones.
+_PERSONA_POOL = [
+    "Talk to me like Satoru Gojo",
+    "Talk to me like Levi Ackerman",
+    "Talk to me like Tanjiro Kamado",
+    "Talk to me like Makima",
+    "Talk to me like Denji",
+]
+
+# category key → (question pool, badge color hex, rgba triplet for bg/border)
+_SUGGESTION_CATEGORIES = {
+    "lore":     (_LORE_POOL,     "#c084fc", "168,85,247"),
+    "rec":      (_REC_POOL,      "#34d399", "16,185,129"),
+    "schedule": (_SCHEDULE_POOL, "#fbbf24", "245,158,11"),
+    "ratings":  (_RATINGS_POOL,  "#60a5fa", "59,130,246"),
+    "persona":  (_PERSONA_POOL,  "#f472b6", "236,72,153"),
+}
 
 # Resolve the chat input (and any pending pill/episode/screenshot message)
 # *before* deciding whether to show the welcome screen below. Previously
@@ -671,16 +829,18 @@ if pending and not user_input:
 welcome_slot = st.empty()
 if not st.session_state.messages and not user_input:
     with welcome_slot.container():
-        # Pick one from each category per session, stable across widget reruns
+        # Show 3 of the 5 categories (lore / recs / schedule / ratings /
+        # persona chat), randomly chosen, one question each — stable across
+        # widget reruns within a session so the pills don't shuffle out from
+        # under the user on every rerun.
         if st.session_state.suggestion_picks is None:
+            chosen_categories = _random.sample(list(_SUGGESTION_CATEGORIES), 3)
             st.session_state.suggestion_picks = [
-                _random.choice(_LORE_POOL),
-                _random.choice(_REC_POOL),
-                _random.choice(_SCHEDULE_POOL),
-                _random.choice(_RATINGS_POOL),
+                (cat, _random.choice(_SUGGESTION_CATEGORIES[cat][0]))
+                for cat in chosen_categories
             ]
 
-        lore_q, rec_q, schedule_q, ratings_q = st.session_state.suggestion_picks
+        picks = st.session_state.suggestion_picks
 
         # Original welcome screen HTML (design unchanged)
         st.markdown(f"""
@@ -703,68 +863,39 @@ if not st.session_state.messages and not user_input:
 
         # Clickable pill buttons, colored per category. Scoped with the
         # .st-key-<key> class Streamlit attaches to each widget's wrapper —
-        # a plain "nth-child(N) within any stHorizontalBlock" selector (the
-        # previous approach) matches every N-column row on the page, including
-        # the sidebar's episode-input/Set-button pair, which silently inherited
-        # the "rec" pill's green color and the pill row's font/padding overrides.
-        st.markdown("""
-        <style>
-          .st-key-pill_lore button, .st-key-pill_rec button,
-          .st-key-pill_schedule button, .st-key-pill_ratings button {
+        # a plain "nth-child(N) within any stHorizontalBlock" selector (a
+        # previous approach here) matches every N-column row on the page,
+        # including the sidebar's episode-input/Set-button pair, which
+        # silently inherited a pill's color and font/padding overrides.
+        # Rules are generated for all 5 categories every time (cheap, and
+        # simpler than tracking which 3 are actually showing this run).
+        pill_css_rules = "\n".join(
+            f"""
+          .st-key-pill_{cat} button {{
             border-radius: 8px !important;
             font-size: 0.82rem !important;
             padding: 0.4rem 0.8rem !important;
             font-weight: 400 !important;
             transition: opacity 0.2s, transform 0.2s !important;
-          }
-          .st-key-pill_lore button:hover, .st-key-pill_rec button:hover,
-          .st-key-pill_schedule button:hover, .st-key-pill_ratings button:hover {
+            background: rgba({rgba},0.1) !important;
+            border: 1px solid rgba({rgba},0.3) !important;
+            color: {color} !important;
+          }}
+          .st-key-pill_{cat} button:hover {{
             opacity: 0.85 !important;
             transform: translateY(-1px) !important;
-          }
-          .st-key-pill_lore button {
-            background: rgba(168,85,247,0.1) !important;
-            border: 1px solid rgba(168,85,247,0.3) !important;
-            color: #c084fc !important;
-          }
-          .st-key-pill_rec button {
-            background: rgba(16,185,129,0.1) !important;
-            border: 1px solid rgba(16,185,129,0.3) !important;
-            color: #34d399 !important;
-          }
-          .st-key-pill_schedule button {
-            background: rgba(245,158,11,0.1) !important;
-            border: 1px solid rgba(245,158,11,0.3) !important;
-            color: #fbbf24 !important;
-          }
-          .st-key-pill_ratings button {
-            background: rgba(59,130,246,0.1) !important;
-            border: 1px solid rgba(59,130,246,0.3) !important;
-            color: #60a5fa !important;
-          }
-        </style>
-        """, unsafe_allow_html=True)
+          }}
+            """
+            for cat, (_, color, rgba) in _SUGGESTION_CATEGORIES.items()
+        )
+        st.markdown(f"<style>{pill_css_rules}</style>", unsafe_allow_html=True)
 
-        lore_col, rec_col, schedule_col, ratings_col = st.columns(4)
-        with lore_col:
-            if st.button(f"{lore_q}", key="pill_lore", use_container_width=True):
-                st.session_state._pending_msg = lore_q
-                st.rerun()
-
-        with rec_col:
-            if st.button(f"{rec_q}", key="pill_rec", use_container_width=True):
-                st.session_state._pending_msg = rec_q
-                st.rerun()
-
-        with schedule_col:
-            if st.button(f"{schedule_q}", key="pill_schedule", use_container_width=True):
-                st.session_state._pending_msg = schedule_q
-                st.rerun()
-
-        with ratings_col:
-            if st.button(f"{ratings_q}", key="pill_ratings", use_container_width=True):
-                st.session_state._pending_msg = ratings_q
-                st.rerun()
+        pill_cols = st.columns(len(picks))
+        for col, (cat, question) in zip(pill_cols, picks):
+            with col:
+                if st.button(question, key=f"pill_{cat}", use_container_width=True):
+                    st.session_state._pending_msg = question
+                    st.rerun()
 
 if user_input:
     # ── Ensure DB session exists before saving ────────────────────────────
@@ -798,6 +929,7 @@ if user_input:
         try:
             result = None
             with st.status("Agent thinking...", expanded=True) as status_container:
+                steps_placeholder = st.empty()
                 for event in stream_agent_with_state(
                     message=user_input,
                     anime_name=st.session_state.anime_name,
@@ -808,7 +940,11 @@ if user_input:
                     history=st.session_state.lc_messages,
                 ):
                     if event["type"] == "node":
-                        # Display what the agent is currently doing with descriptive text
+                        # Display what the agent is currently doing with descriptive text.
+                        # Each new step appears with a spinning circle; appending the
+                        # NEXT step (or finishing the loop) is what visually "completes"
+                        # the previous one, since by the time the next node event
+                        # arrives the previous node has already finished running.
                         node = event["name"]
                         node_desc = {
                             "router_node": "Analyzing intent & routing...",
@@ -819,22 +955,40 @@ if user_input:
                             "persona_node": "Personalizing response style...",
                             "episode_node": "Checking Episode Progress...",
                         }.get(node, f"Executing {node}...")
-                        
+
                         agent_steps.append(node_desc)
-                        status_container.update(label=node_desc)
-                        status_container.write(node_desc)
-                        
+                        # Note: no status_container.update(label=...) here. An
+                        # update() call that doesn't also repeat expanded=True
+                        # was silently collapsing the box on every single step
+                        # (confirmed via the rendered <details> losing its
+                        # "open" attribute mid-run) — leaving the header static
+                        # at "Agent thinking..." avoids needing to fight that,
+                        # and the step list below is the actual detail anyway.
+                        steps_placeholder.markdown(
+                            _render_steps_html(agent_steps, in_progress=True),
+                            unsafe_allow_html=True,
+                        )
+
                         if node == "tools_node":
                             context = event["update"].get("retrieved_context", "")
                             tools_called = [line.strip("[]:") for line in context.split("\n") if line.startswith("[") and line.endswith("]:")]
                             if tools_called:
-                                tool_msg = f"**Tools used:** `{', '.join(tools_called)}`"
-                                status_container.write(tool_msg)
+                                tool_msg = f"Tools used: {', '.join(tools_called)}"
                                 agent_steps.append(tool_msg)
-                        
+                                steps_placeholder.markdown(
+                                    _render_steps_html(agent_steps, in_progress=True),
+                                    unsafe_allow_html=True,
+                                )
+
                     elif event["type"] == "final":
                         result = event["result"]
-                        
+
+                # Stream finished — the last step is done too, so every row
+                # in the list now shows a green checkmark.
+                steps_placeholder.markdown(
+                    _render_steps_html(agent_steps, in_progress=False),
+                    unsafe_allow_html=True,
+                )
                 status_container.update(label="Response generated", state="complete")
 
             reply = result["reply"]
