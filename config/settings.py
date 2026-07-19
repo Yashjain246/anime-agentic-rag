@@ -107,6 +107,13 @@ class Settings(BaseSettings):
         description="SQLite locally, PostgreSQL on production (Supabase)",
     )
 
+    # ── Admin panel ───────────────────────────────────────────────────────────
+    ADMIN_PASSWORD: str = Field(
+        default="",
+        description="Password to unlock the admin panel (DB stats + clear-all) "
+                    "in the Streamlit sidebar. Leave empty to disable the panel entirely.",
+    )
+
     def setup_langsmith(self) -> None:
         """Inject LangSmith env vars so LangGraph picks them up automatically."""
         if self.LANGSMITH_TRACING and self.LANGSMITH_API_KEY:

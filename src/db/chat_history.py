@@ -252,10 +252,50 @@ class ChatHistoryDB:
         values.append(session_id)
         
         query = f"UPDATE sessions SET {', '.join(fields)}, updated_at=? WHERE session_id=?"
-        
+
         conn = self._get_conn()
         try:
             self._execute(conn, query, tuple(values))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_stats(self) -> dict:
+        """
+        Aggregate stats for the admin panel: total sessions, total messages,
+        and (SQLite only) the DB file size in MB. Postgres doesn't get a
+        size figure here — computing it needs a privileged query the
+        Supabase connection user may not have.
+        """
+        if not self._connected:
+            return {"sessions": 0, "turns": 0, "db_size_mb": None}
+        conn = self._get_conn()
+        try:
+            sessions_row = self._execute(conn, "SELECT COUNT(*) as c FROM sessions").fetchone()
+            turns_row = self._execute(conn, "SELECT COUNT(*) as c FROM turns").fetchone()
+        finally:
+            conn.close()
+
+        db_size_mb = None
+        if not self.is_postgres:
+            db_path = Path(self.db_url)
+            if db_path.exists():
+                db_size_mb = db_path.stat().st_size / (1024 * 1024)
+
+        return {
+            "sessions": sessions_row["c"],
+            "turns": turns_row["c"],
+            "db_size_mb": db_size_mb,
+        }
+
+    def clear_all(self) -> None:
+        """Delete ALL sessions and turns for EVERY user. Irreversible — admin-only."""
+        if not self._connected:
+            return
+        conn = self._get_conn()
+        try:
+            self._execute(conn, "DELETE FROM turns")
+            self._execute(conn, "DELETE FROM sessions")
             conn.commit()
         finally:
             conn.close()

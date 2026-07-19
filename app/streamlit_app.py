@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 # ── Add project root to sys.path ──────────────────────────────────────────────
@@ -268,13 +269,33 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ── Anonymous per-browser identity ────────────────────────────────────────────
+def _get_or_create_anon_user_id() -> str:
+    """
+    Stable per-browser identity via a URL query param — no login required.
+    On first visit, generate a UUID and write it into the URL so it
+    survives page reloads (same URL = same identity, same chat history).
+    A fresh tab/browser without the ?uid= param gets a new identity —
+    that's the expected anonymous-session tradeoff (no cookies/
+    localStorage involved, so it doesn't survive a bare URL with the
+    param stripped, e.g. a bookmarked/shared link).
+    """
+    uid = st.query_params.get("uid")
+    if not uid:
+        uid = str(uuid.uuid4())
+        st.query_params["uid"] = uid
+    return uid
+
+
 # ── Session state initialisation ─────────────────────────────────────────────
 def _init_session():
+    if "anon_user_id" not in st.session_state:
+        st.session_state.anon_user_id = _get_or_create_anon_user_id()
+
     defaults = {
         "messages": [],           # list of {"role": "user"/"assistant", "content": str, "intent": str}
         "lc_messages": [],        # LangChain message objects for the agent
         "session_id": None,       # current DB session ID
-        "my_session_ids": [],     # session IDs created in THIS browser session (for privacy)
         "anime_name": "",
         "current_chapter": 9999,
         "spoiler_mode": False,
@@ -435,11 +456,7 @@ with st.sidebar:
 
     try:
         db = get_db()
-        sessions = db.list_sessions()
-
-        # Filter to only this browser session's conversations (privacy fix)
-        my_ids = set(st.session_state.my_session_ids)
-        sessions = [s for s in sessions if s["session_id"] in my_ids]
+        sessions = db.list_sessions(user_id=st.session_state.anon_user_id)
 
         if sessions:
             st.caption(f"{len(sessions)} previous conversation(s)")
@@ -477,6 +494,55 @@ with st.sidebar:
                         st.rerun()
     except Exception as _db_err:
         st.caption(f"⚠️ Chat history unavailable: DB connection error.")
+
+    # ── Admin panel (hidden unless ADMIN_PASSWORD is configured) ────────────
+    if settings.ADMIN_PASSWORD:
+        st.divider()
+        with st.expander("Admin", expanded=st.session_state.get("is_admin", False)):
+            if not st.session_state.get("is_admin"):
+                admin_pw = st.text_input("Password", type="password", key="admin_pw_input")
+                if st.button("Unlock", key="admin_unlock_btn"):
+                    if admin_pw == settings.ADMIN_PASSWORD:
+                        st.session_state.is_admin = True
+                        st.rerun()
+                    else:
+                        st.error("Incorrect password")
+            else:
+                if st.session_state.pop("admin_just_cleared", False):
+                    # Shown on the run AFTER the clear (not the same run that
+                    # calls st.rerun() below) — a message queued right before
+                    # st.rerun() can be interrupted before it ever reaches the
+                    # browser, so we flag-and-show-next-run instead.
+                    st.success("Database cleared.")
+
+                try:
+                    db = get_db()
+                    stats = db.get_stats()
+                    st.metric("Total sessions (all users)", stats["sessions"])
+                    st.metric("Total messages (all users)", stats["turns"])
+                    if stats["db_size_mb"] is not None:
+                        st.metric("DB file size", f"{stats['db_size_mb']:.2f} MB")
+
+                    st.warning("Clearing deletes ALL users' chat history. This cannot be undone.")
+                    confirm_clear = st.checkbox("I understand this is irreversible", key="admin_confirm_clear")
+                    if st.button(
+                        "Clear entire database",
+                        type="primary",
+                        disabled=not confirm_clear,
+                        key="admin_clear_btn",
+                    ):
+                        db.clear_all()
+                        st.session_state.session_id = None
+                        st.session_state.messages = []
+                        st.session_state.lc_messages = []
+                        st.session_state.admin_just_cleared = True
+                        st.rerun()
+                except Exception as _admin_db_err:
+                    st.caption(f"⚠️ Admin stats unavailable: DB connection error.")
+
+                if st.button("Lock admin panel", key="admin_lock_btn"):
+                    st.session_state.is_admin = False
+                    st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MAIN AREA — Header
@@ -683,12 +749,11 @@ if user_input:
     if not st.session_state.session_id:
         db = get_db()
         new_sid = db.create_session(
+            user_id=st.session_state.anon_user_id,
             anime_name=st.session_state.anime_name,
             persona=st.session_state.persona,
         )
         st.session_state.session_id = new_sid
-        # Track this session ID as belonging to this browser user
-        st.session_state.my_session_ids.append(new_sid)
 
     # ── Display user message ──────────────────────────────────────────────
     st.session_state.messages.append({
