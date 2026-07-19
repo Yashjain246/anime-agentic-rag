@@ -27,10 +27,25 @@ from config.settings import settings
 _IST = timezone(timedelta(hours=5, minutes=30))
 _JST = timezone(timedelta(hours=9))
 
-_DAY_MAP = {
-    "mondays": 0, "tuesdays": 1, "wednesdays": 2, "thursdays": 3,
-    "fridays": 4, "saturdays": 5, "sundays": 6,
-}
+_DAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+
+def _parse_weekday(day_str: str) -> int | None:
+    """
+    Parse a day name into a weekday index (0=Monday), tolerant of case,
+    pluralization ("Sundays"), and abbreviation ("Sun"). anilist_schedule
+    and the LLM both produce singular day names ("Sunday"), but the
+    calendar tool used to only accept the plural form - every add-to-
+    calendar request silently failed with "Could not parse day" as a
+    result.
+    """
+    normalized = day_str.strip().lower().rstrip("s")
+    if len(normalized) < 3:
+        return None
+    for i, name in enumerate(_DAY_NAMES):
+        if name.startswith(normalized):
+            return i
+    return None
 
 
 def _get_calendar_service():
@@ -79,7 +94,7 @@ def google_calendar_add(
     Always call anilist_schedule first to get broadcast_day and broadcast_time.
     Args:
         anime_title: Anime name.
-        broadcast_day: e.g. 'Thursdays'.
+        broadcast_day: e.g. 'Thursday' or 'Thursdays'.
         broadcast_time: HH:MM JST format.
     """
     if not settings.ENABLE_CALENDAR_TOOL:
@@ -89,7 +104,7 @@ def google_calendar_add(
         )
     try:
         service = _get_calendar_service()
-        wd = _DAY_MAP.get(broadcast_day.lower())
+        wd = _parse_weekday(broadcast_day)
         if wd is None:
             return f'Could not parse day: "{broadcast_day}"'
 
@@ -106,7 +121,7 @@ def google_calendar_add(
         air = nxt.astimezone(_IST).strftime("%A, %d %B %Y at %H:%M IST")
 
         event = {
-            "summary": f"🎌 {anime_title} — New Episode",
+            "summary": f"{anime_title} — New Episode",
             "description": "Added by Anime Bot.",
             "start": {"dateTime": utc_s.isoformat(), "timeZone": "UTC"},
             "end": {"dateTime": utc_e.isoformat(), "timeZone": "UTC"},
@@ -117,7 +132,7 @@ def google_calendar_add(
         }
         created = service.events().insert(calendarId="c0683492932a088b94531c3e63a1523e81cb02ad7ed9c35ac5cc2711b70d99dd@group.calendar.google.com", body=event).execute()
         return (
-            f"✅ Event created on the Public Anime Calendar!\n"
+            f"Event created on the Public Anime Calendar.\n"
             f"Title: {anime_title}\n"
             f"Time: {air}\n"
             f"Link: {created.get('htmlLink')}"

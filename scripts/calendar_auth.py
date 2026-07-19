@@ -4,20 +4,20 @@ scripts/calendar_auth.py
 ONE-TIME Google Calendar OAuth setup script.
 
 Run this ONCE locally to generate token.json with a persistent refresh token.
-The deployed app on Render will silently use the refresh token — no user
-interaction ever needed again.
+The deployed app will silently use the refresh token via CALENDAR_TOKEN_B64 -
+no user interaction ever needed again (see DEPLOYMENT.md).
 
 Usage:
   python scripts/calendar_auth.py
 
 Prerequisites:
   1. Go to https://console.cloud.google.com/
-  2. Create a project → Enable Google Calendar API
+  2. Create a project, enable the Google Calendar API
   3. Create OAuth 2.0 credentials (Desktop app type)
-  4. Download credentials.json → place it in the project root
-  5. Run this script → it will open a browser for one-time consent
+  4. Download credentials.json, place it in the project root
+  5. Run this script - it will open a browser for one-time consent
   6. token.json will be created in the project root
-  7. Upload token.json to Render as a secret environment variable
+  7. Base64-encode token.json and set it as CALENDAR_TOKEN_B64 in production
 """
 
 import os
@@ -64,12 +64,12 @@ def main():
 
         with open(settings.CALENDAR_TOKEN_PATH, "w") as f:
             f.write(creds.to_json())
-        print(f"✅ token.json saved to: {settings.CALENDAR_TOKEN_PATH}")
+        print(f"token.json saved to: {settings.CALENDAR_TOKEN_PATH}")
         print("\nNext steps:")
         print("  1. Set ENABLE_CALENDAR_TOOL=true in your .env")
         print("  2. For Render deployment: add token.json content as a secret file")
     else:
-        print(f"✅ Token is already valid: {settings.CALENDAR_TOKEN_PATH}")
+        print(f"Token is already valid: {settings.CALENDAR_TOKEN_PATH}")
         print(f"   Expires: {creds.expiry}")
 
 

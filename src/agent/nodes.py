@@ -46,6 +46,30 @@ def _get_last_human_message(state: AgentState) -> str:
     return ""
 
 
+def _format_recent_history(state: AgentState, max_messages: int = 6) -> str:
+    """
+    Format the last few turns as a plain-text block, excluding the current
+    user message. Shared by any node whose LLM call needs to understand a
+    short follow-up ("yes, add it") in context of what was just discussed -
+    without this, a node that only sees the latest message in isolation has
+    no way to know what "it" refers to.
+    """
+    all_messages = state.get("messages", [])
+    history_messages = [
+        m for m in all_messages[:-1]
+        if isinstance(m, (HumanMessage, AIMessage))
+    ][-max_messages:]
+
+    if not history_messages:
+        return "No previous conversation."
+
+    lines = [
+        f"{'User' if isinstance(m, HumanMessage) else 'You'}: {m.content}"
+        for m in history_messages
+    ]
+    return "\n".join(lines)
+
+
 # ── NODE 0: Persona Switch ────────────────────────────────────────────────────
 def persona_node(state: AgentState) -> dict:
     """
@@ -234,7 +258,7 @@ def router_node(state: AgentState) -> dict:
         return {"intent": fast_intent}
 
     # ── Slow path: LLM classification ─────────────────────────────────────
-    prompt = build_classification_prompt(user_message)
+    prompt = build_classification_prompt(user_message, _format_recent_history(state))
 
     try:
         structured_llm = get_query_gen_llm().with_structured_output(RouterOutput)
@@ -342,14 +366,32 @@ def tools_node(state: AgentState) -> dict:
     if state.get("image_path"):
         user_message = f'{user_message} [image:{state["image_path"]}]'
 
+    # Recent history matters here: a short follow-up like "yes, add it" only
+    # makes sense in light of what was just discussed (which anime, what
+    # schedule) - without it the LLM has no idea what "it" refers to and
+    # either can't call the tool correctly or, worse, claims to have done
+    # something it never actually called a tool for.
+    history_text = _format_recent_history(state)
+
     system = SystemMessage(content=(
-        "You are an anime assistant with access to tools. "
-        "Use the appropriate tool to answer the user. "
-        "For calendar requests, ALWAYS call anilist_schedule first "
-        "to get the broadcast day and time, then call google_calendar_add. "
-        "When returning the calendar link to the user, tell them to click the link to save it to their personal calendar. "
-        "If the user uploaded an image (indicated by [image:path]), "
-        "call trace_moe_vision with that path."
+        "You are an anime assistant with access to tools. Use the "
+        "appropriate tool to answer the user, using RECENT CONVERSATION "
+        "below to resolve short follow-ups like \"yes\" or \"add it\" to "
+        "whatever was just discussed (which anime, which schedule).\n"
+        "For calendar requests, always call anilist_schedule fresh, then "
+        "google_calendar_add with the day/time it returns - do this even "
+        "for a short confirmation reply where the anime was only named "
+        "earlier in the conversation. Never reuse a time you see written "
+        "in your own earlier reply in this conversation: those are already "
+        "converted to IST for the user to read, while google_calendar_add "
+        "needs the raw JST time from anilist_schedule's 'Broadcast: ... "
+        "JST' line - passing the IST display time to google_calendar_add "
+        "creates an event at the wrong time.\n"
+        "When returning the calendar link, tell the user to click it to "
+        "save the event to their personal calendar.\n"
+        "If the user uploaded an image (indicated by [image:path]), call "
+        "trace_moe_vision with that path.\n\n"
+        f"RECENT CONVERSATION:\n{history_text}"
     ))
 
     messages = [system, HumanMessage(content=user_message)]
@@ -398,38 +440,12 @@ def respond_node(state: AgentState) -> dict:
 
     system_content, _ = build_system_prompt(intent, persona_text, context)
 
-    # Build multi-turn message list: system + full history + current user message
-    # This gives the LLM proper conversational memory across turns
-    all_messages = state.get("messages", [])
-    
-    # Separate out only Human/AI messages from history (exclude system messages)
-    from langchain_core.messages import HumanMessage as HM, AIMessage as AIM
-    history_messages = [
-        m for m in all_messages[:-1]  # exclude the last message (current user input)
-        if isinstance(m, (HM, AIM))
-    ]
-    
-    # Cap history to last 6 messages (3 exchanges) for faster token processing
-    history_messages = history_messages[-6:]
-    
-    # FORMAT HISTORY AS TEXT BLOCK to guarantee the LLM reads it
-    history_text = "No previous conversation."
-    if history_messages:
-        lines = []
-        for m in history_messages:
-            role = "User" if isinstance(m, HM) else "You"
-            lines.append(f"{role}: {m.content}")
-        history_text = "\n".join(lines)
-        
+    # Give the LLM the recent exchange so it has conversational memory
+    # across turns (e.g. understanding "yes" as a reply to its own question).
+    history_text = _format_recent_history(state)
     system_content += f"\n\n--- PREVIOUS CONVERSATION HISTORY ---\n{history_text}\n-------------------------------------"
-    
-    llm_input = [SystemMessage(content=system_content), HumanMessage(content=user_message)]
 
-    print(f"\n--- DEBUG RESPOND NODE ---")
-    print(f"Total messages in state: {len(all_messages)}")
-    print(f"History messages (passed as text): {len(history_messages)}")
-    print(f"System prompt length: {len(system_content)}")
-    print(f"--------------------------\n")
+    llm_input = [SystemMessage(content=system_content), HumanMessage(content=user_message)]
 
     response = get_agent_llm().invoke(llm_input)
 

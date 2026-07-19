@@ -42,10 +42,16 @@ MULTI_QUERY_PROMPT = PromptTemplate(
     input_variables=["question"],
     template="""\
 You are an expert at manga and anime lore retrieval.
-Rewrite the user's question into exactly 2 targeted search queries
-that will find relevant manga chapter summaries in a database.
+Rewrite the user's question into exactly 2 targeted search queries that
+will find relevant manga chapter summaries in a database. Each summary
+is written as a short narrative plus a separate list of key events, so
+one query should read like a plot description and the other should read
+like a single concrete event or action - together they'll match both
+retrieval styles.
 Rules:
-- Each query must approach the question from a DIFFERENT angle
+- The 2 queries must approach the question from different angles (e.g.
+  one centered on named entities - characters, locations, techniques -
+  the other on the event or action itself)
 - Use specific character names, locations, or arc names when possible
 - Keep each query under 15 words
 - Output ONLY the 2 queries, one per line, no numbering

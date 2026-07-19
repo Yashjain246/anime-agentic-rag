@@ -96,14 +96,23 @@ st.markdown("""
   .stChatMessage {
     background: transparent !important;
     border: none !important;
+    gap: 1rem !important;
   }
-  div[data-testid="stChatMessageAvatar"] {
-    width: 3.5rem !important;
-    height: 3.5rem !important;
-  }
-  div[data-testid="stChatMessageAvatar"] img {
-    width: 100% !important;
-    height: 100% !important;
+  /* Streamlit 1.58 renders the avatar as a bare <img alt="user avatar"> /
+     <img alt="assistant avatar"> directly inside .stChatMessage — it carries
+     no data-testid at all, so the previous "stChatMessageAvatar" selector
+     (an exact-match testid that doesn't exist in this version) never
+     applied. Target by the alt text instead, which is stable. */
+  .stChatMessage img[alt="user avatar"],
+  .stChatMessage img[alt="assistant avatar"] {
+    width: 3.6rem !important;
+    height: 3.6rem !important;
+    border-radius: 50% !important;
+    object-fit: cover !important;
+    border: 2px solid rgba(139, 92, 246, 0.45) !important;
+    box-shadow: 0 0 18px rgba(139, 92, 246, 0.25) !important;
+    flex-shrink: 0 !important;
+    margin-top: 0.2rem;
   }
   .user-bubble {
     background: linear-gradient(135deg, #1e1b4b, #312e81);
@@ -114,6 +123,7 @@ st.markdown("""
     max-width: 80%;
     margin-left: auto;
     box-shadow: 0 4px 15px rgba(139, 92, 246, 0.1);
+    line-height: 1.6;
   }
   .bot-bubble {
     background: linear-gradient(135deg, #0f172a, #1e293b);
@@ -207,59 +217,21 @@ st.markdown("""
     border-radius: 12px !important;
   }
 
-  /* ── History list ── */
-  .history-item {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px;
-    padding: 0.5rem 0.8rem;
-    margin: 0.3rem 0;
-    cursor: pointer;
-    font-size: 0.82rem;
-    color: #94a3b8;
-    transition: all 0.2s;
-  }
-  .history-item:hover {
-    background: rgba(99,102,241,0.1);
-    border-color: rgba(99,102,241,0.4);
-    color: #e8e8f0;
+  /* ── Sidebar chat-history buttons ── */
+  [data-testid="stSidebar"] button {
+    border-radius: 8px !important;
   }
 
-  /* ── Suggestion chips ── */
-  .chip-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.6rem;
-    justify-content: center;
-    margin: 0.8rem 0 1.2rem 0;
+  /* ── Destructive admin action — stays red regardless of theme primary ── */
+  .st-key-admin_clear_btn button {
+    background: rgba(239,68,68,0.15) !important;
+    border: 1px solid rgba(239,68,68,0.5) !important;
+    color: #fca5a5 !important;
   }
-  /* Override default Streamlit button styling for chips */
-  div[data-testid="column"] > div > div > div > button {
-    background: rgba(99,102,241,0.08) !important;
-    border: 1px solid rgba(99,102,241,0.3) !important;
-    border-radius: 999px !important;
-    color: #c4b5fd !important;
-    font-size: 0.8rem !important;
-    padding: 0.35rem 1rem !important;
-    transition: all 0.2s ease !important;
-    white-space: nowrap !important;
-    font-weight: 500 !important;
-  }
-  div[data-testid="column"] > div > div > div > button:hover {
-    background: rgba(99,102,241,0.25) !important;
-    border-color: rgba(168,85,247,0.6) !important;
-    color: #e9d5ff !important;
-    transform: translateY(-1px) !important;
-    box-shadow: 0 4px 12px rgba(99,102,241,0.3) !important;
-  }
-  .suggestion-chip {
-    padding: 0.4rem 0.8rem;
-    border-radius: 12px;
-    border: 1px solid #334155;
-    background: #1e293b;
-    color: #cbd5e1;
-    font-size: 0.85rem;
-    cursor: pointer;
+  .st-key-admin_clear_btn button:hover {
+    background: rgba(239,68,68,0.28) !important;
+    border-color: #ef4444 !important;
+    color: #fecaca !important;
   }
 
   /* ── Scrollbar ── */
@@ -341,7 +313,6 @@ with st.sidebar:
     # Header
     st.markdown("""
     <div style="text-align:center; padding: 1rem 0 0.5rem;">
-      <span style="font-size:2.2rem;"></span>
       <h2 style="font-family:'Rajdhani',sans-serif; font-size:1.4rem;
                  background:linear-gradient(90deg,#a855f7,#3b82f6);
                  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
@@ -351,6 +322,21 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     st.divider()
+
+    # ── What can I ask? (always visible, not just on an empty chat) ─────────
+    with st.expander("What can I ask?"):
+        st.markdown(
+            "- **Plot & lore** for Demon Slayer, Jujutsu Kaisen, Attack on "
+            "Titan, or Chainsaw Man — set your episode below and answers "
+            "stay spoiler-safe for anything beyond it\n"
+            "- **Recommendations** — \"suggest anime like X\"\n"
+            "- **Airing schedules** — next-episode times, with an offer to "
+            "add them to your Google Calendar\n"
+            "- **Episode ratings** — a ratings chart for any season\n"
+            "- **Screenshot ID** — upload an image, find out what it's from\n"
+            "- **Character personas** — pick any of 738 characters below "
+            "and the bot talks as them"
+        )
 
     # ── Anime Settings ─────────────────────────────────────────────────────
     st.markdown('<div class="sidebar-title">Anime Settings</div>', unsafe_allow_html=True)
@@ -485,7 +471,7 @@ with st.sidebar:
                         st.session_state.messages = msgs
                         st.rerun()
                 with h_col2:
-                    if st.button("🗑️", key=f"del_{sess['session_id']}", help="Delete chat", use_container_width=False):
+                    if st.button("×", key=f"del_{sess['session_id']}", help="Delete chat", use_container_width=False):
                         db.delete_session(sess["session_id"])
                         if is_current:
                             st.session_state.session_id = None
@@ -493,7 +479,7 @@ with st.sidebar:
                             st.session_state.lc_messages = []
                         st.rerun()
     except Exception as _db_err:
-        st.caption(f"⚠️ Chat history unavailable: DB connection error.")
+        st.caption("Chat history unavailable: DB connection error.")
 
     # ── Admin panel (hidden unless ADMIN_PASSWORD is configured) ────────────
     if settings.ADMIN_PASSWORD:
@@ -538,7 +524,7 @@ with st.sidebar:
                         st.session_state.admin_just_cleared = True
                         st.rerun()
                 except Exception as _admin_db_err:
-                    st.caption(f"⚠️ Admin stats unavailable: DB connection error.")
+                    st.caption("Admin stats unavailable: DB connection error.")
 
                 if st.button("Lock admin panel", key="admin_lock_btn"):
                     st.session_state.is_admin = False
@@ -549,7 +535,6 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="anime-header">
-  <span style="font-size:2.5rem;"></span>
   <div>
     <h1>Anime Agentic RAG</h1>
     <p>Spoiler-safe lore • Smart recommendations • Real-time tools • 738 character personas</p>
@@ -646,105 +631,15 @@ _RATINGS_POOL = [
     "What's Demon Slayer's highest rated episode?",
 ]
 
-if not st.session_state.messages:
-    # Pick one from each category per session, stable across widget reruns
-    if st.session_state.suggestion_picks is None:
-        st.session_state.suggestion_picks = [
-            _random.choice(_LORE_POOL),
-            _random.choice(_REC_POOL),
-            _random.choice(_SCHEDULE_POOL),
-            _random.choice(_RATINGS_POOL),
-        ]
-
-    lore_q, rec_q, schedule_q, ratings_q = st.session_state.suggestion_picks
-
-    # Original welcome screen HTML (design unchanged)
-    st.markdown(f"""
-      <div style="text-align:center; padding: 2rem 1rem 0.5rem 1rem; color:#e8e8f0;">
-        <div style="font-size:2rem; margin-bottom:0.8rem;"></div>
-        <h3 style="font-size:1.6rem; font-weight:700; margin-bottom:0.6rem;
-                   background:linear-gradient(90deg,#a855f7,#60a5fa); -webkit-background-clip:text;
-                   -webkit-text-fill-color:transparent;">
-          Ready to explore the anime world
-        </h3>
-        <p style="font-size:0.9rem; max-width:560px; margin:0 auto; line-height:1.7; color:#94a3b8;">
-          Ask about <b style="color:#a855f7">plot &amp; lore</b>,
-          get <b style="color:#34d399">recommendations</b>,
-          check <b style="color:#fbbf24">airing schedules</b>,
-          see <b style="color:#60a5fa">episode ratings</b>,
-          or identify a screenshot.<br><br>
-          Set your episode in the sidebar for <b style="color:#f472b6">spoiler-safe</b> answers.
-        </p>
-      </div>
-    """, unsafe_allow_html=True)
-
-    # Clickable pill buttons — styled to match original spans exactly
-    st.markdown("""
-    <style>
-      /* Pill buttons — scoped by key prefix to avoid touching sidebar/chat buttons */
-      div[data-testid="stHorizontalBlock"] button[kind="secondary"] {
-        border-radius: 8px !important;
-        font-size: 0.82rem !important;
-        padding: 0.4rem 0.8rem !important;
-        font-weight: 400 !important;
-        transition: opacity 0.2s !important;
-      }
-      div[data-testid="stHorizontalBlock"] button[kind="secondary"]:hover {
-        opacity: 0.85 !important;
-      }
-    </style>
-    """, unsafe_allow_html=True)
-
-    lore_col, rec_col, schedule_col, ratings_col = st.columns(4)
-    with lore_col:
-        st.markdown("""<style>
-          div[data-testid="stHorizontalBlock"] > div:nth-child(1) button {
-            background: rgba(168,85,247,0.1) !important;
-            border: 1px solid rgba(168,85,247,0.3) !important;
-            color: #c084fc !important;
-          }
-        </style>""", unsafe_allow_html=True)
-        if st.button(f"{lore_q}", key="pill_lore", use_container_width=True):
-            st.session_state._pending_msg = lore_q
-            st.rerun()
-
-    with rec_col:
-        st.markdown("""<style>
-          div[data-testid="stHorizontalBlock"] > div:nth-child(2) button {
-            background: rgba(16,185,129,0.1) !important;
-            border: 1px solid rgba(16,185,129,0.3) !important;
-            color: #34d399 !important;
-          }
-        </style>""", unsafe_allow_html=True)
-        if st.button(f"{rec_q}", key="pill_rec", use_container_width=True):
-            st.session_state._pending_msg = rec_q
-            st.rerun()
-
-    with schedule_col:
-        st.markdown("""<style>
-          div[data-testid="stHorizontalBlock"] > div:nth-child(3) button {
-            background: rgba(245,158,11,0.1) !important;
-            border: 1px solid rgba(245,158,11,0.3) !important;
-            color: #fbbf24 !important;
-          }
-        </style>""", unsafe_allow_html=True)
-        if st.button(f"{schedule_q}", key="pill_schedule", use_container_width=True):
-            st.session_state._pending_msg = schedule_q
-            st.rerun()
-
-    with ratings_col:
-        st.markdown("""<style>
-          div[data-testid="stHorizontalBlock"] > div:nth-child(4) button {
-            background: rgba(59,130,246,0.1) !important;
-            border: 1px solid rgba(59,130,246,0.3) !important;
-            color: #60a5fa !important;
-          }
-        </style>""", unsafe_allow_html=True)
-        if st.button(f"{ratings_q}", key="pill_ratings", use_container_width=True):
-            st.session_state._pending_msg = ratings_q
-            st.rerun()
-
-
+# Resolve the chat input (and any pending pill/episode/screenshot message)
+# *before* deciding whether to show the welcome screen below. Previously
+# st.chat_input() was called after this section, so on the very first
+# message of a session the welcome block still rendered "empty chat" (it
+# hadn't seen user_input yet) — showing the welcome screen and the new
+# exchange stacked on top of each other for that one run. st.chat_input
+# stays pinned to the bottom of the page regardless of where it's called,
+# so moving it earlier only affects when we read its value, not where it
+# renders.
 pending = None
 if "_pending_msg" in st.session_state:
     pending = st.session_state.pop("_pending_msg")
@@ -755,9 +650,6 @@ elif hasattr(st.session_state, "_pending_screenshot_msg"):
     pending = st.session_state._pending_screenshot_msg
     del st.session_state._pending_screenshot_msg
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CHAT INPUT
-# ─────────────────────────────────────────────────────────────────────────────
 user_input = st.chat_input(
     placeholder="Ask about lore, get recommendations, check schedules... or just chat!",
     key="chat_input",
@@ -766,6 +658,113 @@ user_input = st.chat_input(
 # Use pending message if no direct input
 if pending and not user_input:
     user_input = pending
+
+# An explicit st.empty() slot, not a bare "if" block, is what actually
+# guarantees this content disappears on a later rerun. The keyed pill
+# buttons below are exactly the case Streamlit's key= persistence is built
+# for (surviving being conditionally skipped) — which meant a bare `if`
+# left stale, still-clickable pills on screen even after the guard above
+# went False (confirmed live: 4 old pills stayed visible with the wrong,
+# un-restyled gray look after the very first real reply). Writing into
+# welcome_slot.container() each run, and simply not writing to it when the
+# condition is False, reliably clears prior content instead.
+welcome_slot = st.empty()
+if not st.session_state.messages and not user_input:
+    with welcome_slot.container():
+        # Pick one from each category per session, stable across widget reruns
+        if st.session_state.suggestion_picks is None:
+            st.session_state.suggestion_picks = [
+                _random.choice(_LORE_POOL),
+                _random.choice(_REC_POOL),
+                _random.choice(_SCHEDULE_POOL),
+                _random.choice(_RATINGS_POOL),
+            ]
+
+        lore_q, rec_q, schedule_q, ratings_q = st.session_state.suggestion_picks
+
+        # Original welcome screen HTML (design unchanged)
+        st.markdown(f"""
+          <div style="text-align:center; padding: 2rem 1rem 0.5rem 1rem; color:#e8e8f0;">
+            <h3 style="font-size:1.6rem; font-weight:700; margin-bottom:0.6rem;
+                       background:linear-gradient(90deg,#a855f7,#60a5fa); -webkit-background-clip:text;
+                       -webkit-text-fill-color:transparent;">
+              Ready to explore the anime world
+            </h3>
+            <p style="font-size:0.9rem; max-width:560px; margin:0 auto; line-height:1.7; color:#94a3b8;">
+              Ask about <b style="color:#a855f7">plot &amp; lore</b>,
+              get <b style="color:#34d399">recommendations</b>,
+              check <b style="color:#fbbf24">airing schedules</b>,
+              see <b style="color:#60a5fa">episode ratings</b>,
+              or identify a screenshot.<br><br>
+              Set your episode in the sidebar for <b style="color:#f472b6">spoiler-safe</b> answers.
+            </p>
+          </div>
+        """, unsafe_allow_html=True)
+
+        # Clickable pill buttons, colored per category. Scoped with the
+        # .st-key-<key> class Streamlit attaches to each widget's wrapper —
+        # a plain "nth-child(N) within any stHorizontalBlock" selector (the
+        # previous approach) matches every N-column row on the page, including
+        # the sidebar's episode-input/Set-button pair, which silently inherited
+        # the "rec" pill's green color and the pill row's font/padding overrides.
+        st.markdown("""
+        <style>
+          .st-key-pill_lore button, .st-key-pill_rec button,
+          .st-key-pill_schedule button, .st-key-pill_ratings button {
+            border-radius: 8px !important;
+            font-size: 0.82rem !important;
+            padding: 0.4rem 0.8rem !important;
+            font-weight: 400 !important;
+            transition: opacity 0.2s, transform 0.2s !important;
+          }
+          .st-key-pill_lore button:hover, .st-key-pill_rec button:hover,
+          .st-key-pill_schedule button:hover, .st-key-pill_ratings button:hover {
+            opacity: 0.85 !important;
+            transform: translateY(-1px) !important;
+          }
+          .st-key-pill_lore button {
+            background: rgba(168,85,247,0.1) !important;
+            border: 1px solid rgba(168,85,247,0.3) !important;
+            color: #c084fc !important;
+          }
+          .st-key-pill_rec button {
+            background: rgba(16,185,129,0.1) !important;
+            border: 1px solid rgba(16,185,129,0.3) !important;
+            color: #34d399 !important;
+          }
+          .st-key-pill_schedule button {
+            background: rgba(245,158,11,0.1) !important;
+            border: 1px solid rgba(245,158,11,0.3) !important;
+            color: #fbbf24 !important;
+          }
+          .st-key-pill_ratings button {
+            background: rgba(59,130,246,0.1) !important;
+            border: 1px solid rgba(59,130,246,0.3) !important;
+            color: #60a5fa !important;
+          }
+        </style>
+        """, unsafe_allow_html=True)
+
+        lore_col, rec_col, schedule_col, ratings_col = st.columns(4)
+        with lore_col:
+            if st.button(f"{lore_q}", key="pill_lore", use_container_width=True):
+                st.session_state._pending_msg = lore_q
+                st.rerun()
+
+        with rec_col:
+            if st.button(f"{rec_q}", key="pill_rec", use_container_width=True):
+                st.session_state._pending_msg = rec_q
+                st.rerun()
+
+        with schedule_col:
+            if st.button(f"{schedule_q}", key="pill_schedule", use_container_width=True):
+                st.session_state._pending_msg = schedule_q
+                st.rerun()
+
+        with ratings_col:
+            if st.button(f"{ratings_q}", key="pill_ratings", use_container_width=True):
+                st.session_state._pending_msg = ratings_q
+                st.rerun()
 
 if user_input:
     # ── Ensure DB session exists before saving ────────────────────────────
@@ -896,7 +895,7 @@ if user_input:
                 st.image(Image.open(chart_path), use_container_width=True)
 
         except Exception as e:
-            error_msg = f"⚠️ An error occurred: {e}"
+            error_msg = f"An error occurred: {e}"
             response_placeholder.error(error_msg)
             clean_reply = error_msg
             intent = "GENERAL"

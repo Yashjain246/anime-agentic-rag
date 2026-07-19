@@ -9,7 +9,7 @@ app_file: app/streamlit_app.py
 pinned: false
 ---
 
-# 🎌 Anime Agentic RAG
+# Anime Agentic RAG
 A production-ready **agentic RAG (Retrieval-Augmented Generation)** system for anime & manga, built with LangGraph, Gemini, and ChromaDB.
 
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-3776ab?logo=python)](https://python.org)
@@ -21,26 +21,26 @@ A production-ready **agentic RAG (Retrieval-Augmented Generation)** system for a
 
 | Feature | Details |
 |---------|---------|
-| 🗺️ **Agentic routing** | LangGraph state machine — LORE / RECOMMEND / TOOL / GENERAL |
-| 📖 **Spoiler firewall** | ChromaDB metadata filter at DB level (not post-retrieval) |
-| 🔍 **Hybrid RAG** | MultiQuery → 60% dense + 40% BM25 → FlashRank reranker |
-| 🎭 **738 character personas** | Dynamic persona engine from extracted personality data |
-| 📺 **Episode→chapter mapping** | "I'm on episode 45 of Demon Slayer" → chapter cap auto-set |
-| 🔧 **5 tools** | trace.moe, OMDB ratings, Jikan schedule, Tavily news, Google Calendar |
-| 💾 **Persistent chat history** | SQLite locally, PostgreSQL (Supabase) in production |
-| 📊 **LangSmith tracing** | Full observability — set `LANGSMITH_TRACING=true` |
-| ⚡ **Lightweight footprint** | fastembed + flashrank (ONNX, no torch/GPU) — ~850MB peak RSS |
+| **Agentic routing** | LangGraph state machine — LORE / RECOMMEND / TOOL / GENERAL |
+| **Spoiler firewall** | ChromaDB metadata filter at DB level (not post-retrieval) |
+| **Hybrid RAG** | MultiQuery → 60% dense + 40% BM25 → FlashRank reranker |
+| **738 character personas** | Dynamic persona engine from extracted personality data |
+| **Episode-to-chapter mapping** | "I'm on episode 45 of Demon Slayer" → chapter cap auto-set |
+| **5 tools** | trace.moe, OMDB ratings, Jikan schedule, Tavily news, Google Calendar |
+| **Persistent chat history** | Per-user, anonymous browser identity; SQLite locally, PostgreSQL (Supabase) in production |
+| **LangSmith tracing** | Full observability — set `LANGSMITH_TRACING=true` |
+| **Lightweight footprint** | fastembed + flashrank (ONNX, no torch/GPU) — ~850MB peak RSS |
 
 ## Anime Coverage
 
 | Anime | Lore DB | Episode Mapping |
 |-------|---------|-----------------|
-| Demon Slayer | ✅ | ✅ |
-| Jujutsu Kaisen | ✅ | ✅ |
-| Attack on Titan | ✅ | ✅ |
-| Chainsaw Man | ✅ | ✅ |
-| Frieren | ❌ | ✅ |
-| Solo Leveling | ❌ | ✅ |
+| Demon Slayer | Yes | Yes |
+| Jujutsu Kaisen | Yes | Yes |
+| Attack on Titan | Yes | Yes |
+| Chainsaw Man | Yes | Yes |
+| Frieren | No | Yes |
+| Solo Leveling | No | Yes |
 
 ## Quick Start
 

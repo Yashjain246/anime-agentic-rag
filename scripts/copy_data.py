@@ -32,14 +32,14 @@ for filename in FILES_TO_COPY:
     src = SOURCE_DIR / filename
     dst = DATA_DIR / filename
     if dst.exists():
-        print(f"  ✅ Already exists: {filename}")
+        print(f"  Already exists: {filename}")
         continue
     if src.exists():
         shutil.copy2(src, dst)
         size_mb = dst.stat().st_size / 1024 / 1024
-        print(f"  📂 Copied: {filename} ({size_mb:.1f} MB)")
+        print(f"  Copied: {filename} ({size_mb:.1f} MB)")
     else:
-        print(f"  ⚠️  Not found: {src}")
+        print(f"  Not found: {src}")
 
-print("\n✅ Data copy complete!")
+print("\nData copy complete.")
 print(f"Data directory: {DATA_DIR}")
