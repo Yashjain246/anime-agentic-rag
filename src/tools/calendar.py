@@ -1,0 +1,172 @@
+"""
+src/tools/calendar.py
+─────────────────────
+Tool 5: Add anime episode airing events to Google Calendar.
+
+DEPLOYMENT NOTE:
+  This tool uses OAuth with a refresh token stored in token.json.
+  For single-account deployment (your account only):
+    1. Run `python scripts/calendar_auth.py` once locally
+    2. This creates token.json with a persistent refresh token
+    3. Upload token.json as a secret/env var to Render
+    4. The deployed app will silently refresh the token — fully autonomous
+
+  The ENABLE_CALENDAR_TOOL setting controls whether this tool is
+  included in TOOLS. Set it to False in .env for users who haven't
+  completed the one-time OAuth setup.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timedelta, timezone
+
+from langchain_core.tools import tool
+
+from config.settings import settings
+
+logger = logging.getLogger(__name__)
+
+_IST = timezone(timedelta(hours=5, minutes=30))
+_JST = timezone(timedelta(hours=9))
+
+_DAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+# Single shared calendar (owned by the developer's own Google account) that
+# every user's "add to calendar" request writes to — this is what lets the
+# app skip a per-user OAuth flow entirely: the tool always has write access
+# to ITS OWN calendar, then hands back a link for the requesting user to
+# view and copy the event into their own calendar, instead of ever needing
+# to authenticate as that user.
+_PUBLIC_CALENDAR_ID = "c0683492932a088b94531c3e63a1523e81cb02ad7ed9c35ac5cc2711b70d99dd@group.calendar.google.com"
+
+
+def _parse_weekday(day_str: str) -> int | None:
+    """
+    Parse a day name into a weekday index (0=Monday), tolerant of case,
+    pluralization ("Sundays"), and abbreviation ("Sun"). anilist_schedule
+    and the LLM both produce singular day names ("Sunday"), but the
+    calendar tool used to only accept the plural form - every add-to-
+    calendar request silently failed with "Could not parse day" as a
+    result.
+    """
+    normalized = day_str.strip().lower().rstrip("s")
+    if len(normalized) < 3:
+        return None
+    for i, name in enumerate(_DAY_NAMES):
+        if name.startswith(normalized):
+            return i
+    return None
+
+
+# Bound on every outbound call this tool makes to Google (token refresh and
+# the actual calendar insert) — without this, a stalled Google endpoint would
+# hang the whole reply instead of failing fast into the existing "Calendar
+# error: ..." fallback message, matching the ~10s timeouts already used by
+# the other tools (jikan.py, omdb.py).
+_CALENDAR_TIMEOUT_SECONDS = 10
+
+
+def _get_calendar_service():
+    """Build Google Calendar API service using stored token.json."""
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build as google_build
+    import base64
+    import json
+
+    import google_auth_httplib2
+    import httplib2
+
+    class _TimeoutRequest(Request):
+        def __call__(self, *args, **kwargs):
+            kwargs.setdefault("timeout", _CALENDAR_TIMEOUT_SECONDS)
+            return super().__call__(*args, **kwargs)
+
+    SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+    creds = None
+
+    if settings.CALENDAR_TOKEN_B64:
+        try:
+            token_json = base64.b64decode(settings.CALENDAR_TOKEN_B64).decode("utf-8")
+            token_info = json.loads(token_json)
+            creds = Credentials.from_authorized_user_info(token_info, SCOPES)
+        except Exception as e:
+            logger.warning(f"[Calendar] Failed to parse CALENDAR_TOKEN_B64: {e}")
+
+    if not creds and settings.CALENDAR_TOKEN_PATH.exists():
+        creds = Credentials.from_authorized_user_file(
+            str(settings.CALENDAR_TOKEN_PATH), SCOPES
+        )
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(_TimeoutRequest())  # Silent auto-refresh — autonomous in production
+            with open(settings.CALENDAR_TOKEN_PATH, "w") as f:
+                f.write(creds.to_json())
+        else:
+            raise RuntimeError(
+                "No valid Google Calendar credentials found. "
+                "Run `python scripts/calendar_auth.py` first."
+            )
+    authed_http = google_auth_httplib2.AuthorizedHttp(
+        creds, http=httplib2.Http(timeout=_CALENDAR_TIMEOUT_SECONDS)
+    )
+    return google_build("calendar", "v3", http=authed_http)
+
+
+@tool
+def google_calendar_add(
+    anime_title: str,
+    broadcast_day: str,
+    broadcast_time: str,
+) -> str:
+    """Add an anime episode airing to Google Calendar.
+    Always call anilist_schedule first to get broadcast_day and broadcast_time.
+    Args:
+        anime_title: Anime name.
+        broadcast_day: e.g. 'Thursday' or 'Thursdays'.
+        broadcast_time: HH:MM JST format.
+    """
+    if not settings.ENABLE_CALENDAR_TOOL:
+        return (
+            "Google Calendar integration is not configured. "
+            "Contact the bot admin to enable it."
+        )
+    try:
+        service = _get_calendar_service()
+        wd = _parse_weekday(broadcast_day)
+        if wd is None:
+            return f'Could not parse day: "{broadcast_day}"'
+
+        h, m = map(int, broadcast_time.split(":"))
+        now = datetime.now(_JST)
+        ahead = (wd - now.weekday()) % 7
+        if ahead == 0 and now.hour >= h:
+            ahead = 7
+        nxt = (now + timedelta(days=ahead)).replace(
+            hour=h, minute=m, second=0, microsecond=0
+        )
+        utc_s = nxt.astimezone(timezone.utc)
+        utc_e = utc_s + timedelta(minutes=25)
+        air = nxt.astimezone(_IST).strftime("%A, %d %B %Y at %H:%M IST")
+
+        event = {
+            "summary": f"{anime_title} — New Episode",
+            "description": "Added by Anime Bot.",
+            "start": {"dateTime": utc_s.isoformat(), "timeZone": "UTC"},
+            "end": {"dateTime": utc_e.isoformat(), "timeZone": "UTC"},
+            "visibility": "public",
+            "reminders": {
+                "useDefault": False,
+                "overrides": [{"method": "popup", "minutes": 15}],
+            },
+        }
+        created = service.events().insert(calendarId=_PUBLIC_CALENDAR_ID, body=event).execute()
+        return (
+            f"Event created on the Public Anime Calendar.\n"
+            f"Title: {anime_title}\n"
+            f"Time: {air}\n"
+            f"Link: {created.get('htmlLink')}"
+        )
+    except Exception as e:
+        return f"Calendar error: {e}"
