@@ -514,6 +514,47 @@ def _new_session():
     st.session_state.last_intent = ""
     st.session_state.image_path = None
 
+# ── Helper: keep the sidebar's cached session list in sync without a re-fetch ──
+def _sync_session_in_cache(session_id: str, human_msg: str, anime_name: str, persona: str) -> None:
+    """
+    Called right after a successful save_turn + update_session_meta.
+
+    The sidebar used to call list_sessions() + get_session_preview() (once
+    per saved chat) on every single Streamlit rerun, which happens on nearly
+    every click — against a networked DB that's several fresh round-trips
+    on every interaction, most of which have nothing to do with chat
+    history at all. Instead, the sidebar list is now fetched from the DB
+    once per browser session and cached in st.session_state; this function
+    updates that cache in plain Python to reflect the write that JUST
+    happened, so later reruns keep reading the cache instead of the DB.
+
+    Mirrors two behaviours of the DB-backed sidebar exactly:
+      - list_sessions() orders by updated_at DESC → the touched session is
+        moved to the front of the cached list instead of re-sorting by a
+        timestamp we don't need to store.
+      - get_session_preview() always shows the SESSION'S FIRST human
+        message, truncated to 60 chars — so an existing session's preview
+        is left untouched here; only a brand-new session gets one computed.
+    """
+    cache = st.session_state.get("sidebar_sessions")
+    if cache is None:
+        return  # not built yet — the sidebar will fetch fresh on its next render
+
+    existing = next((s for s in cache if s["session_id"] == session_id), None)
+    if existing is not None:
+        cache.remove(existing)
+        existing["anime_name"] = anime_name
+        existing["persona"] = persona
+        cache.insert(0, existing)
+    else:
+        preview = human_msg[:60] + "..." if len(human_msg) > 60 else human_msg
+        cache.insert(0, {
+            "session_id": session_id,
+            "anime_name": anime_name,
+            "persona": persona,
+            "preview": preview,
+        })
+
 # ── "How it works" onboarding dialog ──────────────────────────────────────────
 @st.dialog("How it works", width="large")
 def _how_it_works_dialog():
@@ -826,15 +867,25 @@ with st.sidebar:
 
     try:
         db = get_db()
-        sessions = db.list_sessions(user_id=st.session_state.anon_user_id)
+
+        # Fetched once per browser session, not once per rerun — see
+        # _sync_session_in_cache for why this used to be the dominant
+        # source of per-click lag once DATABASE_URL pointed at a real
+        # network DB instead of a local SQLite file.
+        if "sidebar_sessions" not in st.session_state:
+            fetched = db.list_sessions(user_id=st.session_state.anon_user_id)
+            for sess in fetched:
+                sess["preview"] = db.get_session_preview(sess["session_id"])
+            st.session_state.sidebar_sessions = fetched
+        sessions = st.session_state.sidebar_sessions
 
         if sessions:
             st.caption(f"{len(sessions)} previous conversation(s)")
             for sess in sessions[:15]:  # show last 15
-                preview = db.get_session_preview(sess["session_id"])
+                preview = sess["preview"]
                 is_current = sess["session_id"] == st.session_state.session_id
                 label = f"{'▶ ' if is_current else ''}{preview}"
-                
+
                 h_col1, h_col2 = st.columns([8, 2])
                 with h_col1:
                     if st.button(label, key=f"hist_{sess['session_id']}", use_container_width=True):
@@ -857,6 +908,10 @@ with st.sidebar:
                 with h_col2:
                     if st.button("×", key=f"del_{sess['session_id']}", help="Delete chat", use_container_width=False):
                         db.delete_session(sess["session_id"])
+                        st.session_state.sidebar_sessions = [
+                            s for s in st.session_state.sidebar_sessions
+                            if s["session_id"] != sess["session_id"]
+                        ]
                         if is_current:
                             st.session_state.session_id = None
                             st.session_state.messages = []
@@ -905,6 +960,7 @@ with st.sidebar:
                         st.session_state.session_id = None
                         st.session_state.messages = []
                         st.session_state.lc_messages = []
+                        st.session_state.sidebar_sessions = []
                         st.session_state.admin_just_cleared = True
                         st.rerun()
                 except Exception as _admin_db_err:
@@ -1364,6 +1420,12 @@ if user_input:
                 session_id=st.session_state.session_id,
                 anime_name=st.session_state.anime_name,
                 persona=st.session_state.persona,
+            )
+            _sync_session_in_cache(
+                st.session_state.session_id,
+                user_input,
+                st.session_state.anime_name,
+                st.session_state.persona,
             )
         except Exception:
             pass  # DB errors should never crash the UI
