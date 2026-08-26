@@ -42,6 +42,7 @@ class ChatHistoryDB:
             else:
                 self.db_url = "chat_history.db"
 
+        self._pool = None
         self._connected = False
         try:
             self._init_db()
@@ -51,13 +52,51 @@ class ChatHistoryDB:
             warnings.warn(f"ChatHistoryDB: Could not connect to database: {e}. Running in no-op mode.")
 
     def _get_conn(self):
-        if self.is_postgres:
-            import psycopg2
-            return psycopg2.connect(self.db_url)
-        else:
+        """
+        SQLite: a fresh connection per call, as before — connecting to a
+        local file is essentially free, and caching one connection on this
+        (process-wide singleton) instance would hand the same sqlite3
+        connection to multiple Streamlit session threads at once, which
+        sqlite3 does not allow.
+
+        Postgres: pulled from a small connection pool instead of opened
+        fresh each time. Every call used to pay a full TCP+TLS+auth
+        round-trip to Supabase (100-300ms+), which was invisible against a
+        local SQLite file but adds up fast over the network — especially
+        since the sidebar alone opens one connection per saved chat to
+        build its previews. The pool is created lazily on first use and
+        shared for the lifetime of the process; psycopg2's pool is
+        thread-safe, so this is safe across concurrent Streamlit sessions.
+
+        A pooled connection can go stale if Supabase's side drops it after
+        sitting idle (pool.getconn() doesn't validate before handing one
+        out) — checked here with a trivial SELECT 1 so a dead connection
+        is discarded and retried once instead of failing the real query.
+        """
+        if not self.is_postgres:
             conn = sqlite3.connect(self.db_url)
             conn.row_factory = sqlite3.Row
             return conn
+
+        if self._pool is None:
+            from psycopg2.pool import ThreadedConnectionPool
+            self._pool = ThreadedConnectionPool(1, 5, self.db_url)
+
+        conn = self._pool.getconn()
+        try:
+            conn.cursor().execute("SELECT 1")
+        except Exception:
+            self._pool.putconn(conn, close=True)
+            conn = self._pool.getconn()
+        return conn
+
+    def _release_conn(self, conn) -> None:
+        """Returns a Postgres connection to the pool instead of closing the
+        socket outright; closes SQLite connections as before."""
+        if self.is_postgres and self._pool is not None:
+            self._pool.putconn(conn)
+        else:
+            conn.close()
 
     def _execute(self, conn, query: str, params: tuple = ()):
         """A simple wrapper to handle syntax differences between SQLite and Postgres."""
@@ -120,7 +159,7 @@ class ChatHistoryDB:
             """)
             conn.commit()
         finally:
-            conn.close()
+            self._release_conn(conn)
 
     def create_session(
         self,
@@ -142,7 +181,7 @@ class ChatHistoryDB:
             )
             conn.commit()
         finally:
-            conn.close()
+            self._release_conn(conn)
         return session_id
 
     def save_turn(
@@ -176,7 +215,7 @@ class ChatHistoryDB:
             )
             conn.commit()
         finally:
-            conn.close()
+            self._release_conn(conn)
 
     def load_history(self, session_id: str) -> list[BaseMessage]:
         """Retrieve all messages for a session as LangChain message objects."""
@@ -191,7 +230,7 @@ class ChatHistoryDB:
             )
             rows = cur.fetchall()
         finally:
-            conn.close()
+            self._release_conn(conn)
 
         messages: list[BaseMessage] = []
         for row in rows:
@@ -215,7 +254,7 @@ class ChatHistoryDB:
             rows = cur.fetchall()
             return [dict(row) for row in rows]
         finally:
-            conn.close()
+            self._release_conn(conn)
 
     def get_session_preview(self, session_id: str) -> str:
         """Returns the first human message of a session (for UI labels)."""
@@ -230,7 +269,7 @@ class ChatHistoryDB:
             )
             row = cur.fetchone()
         finally:
-            conn.close()
+            self._release_conn(conn)
             
         if row:
             text = row["content"]
@@ -247,7 +286,7 @@ class ChatHistoryDB:
             self._execute(conn, "DELETE FROM sessions WHERE session_id=?", (session_id,))
             conn.commit()
         finally:
-            conn.close()
+            self._release_conn(conn)
 
     def update_session_meta(
         self,
@@ -278,7 +317,7 @@ class ChatHistoryDB:
             self._execute(conn, query, tuple(values))
             conn.commit()
         finally:
-            conn.close()
+            self._release_conn(conn)
 
     def get_stats(self) -> dict:
         """
@@ -294,7 +333,7 @@ class ChatHistoryDB:
             sessions_row = self._execute(conn, "SELECT COUNT(*) as c FROM sessions").fetchone()
             turns_row = self._execute(conn, "SELECT COUNT(*) as c FROM turns").fetchone()
         finally:
-            conn.close()
+            self._release_conn(conn)
 
         db_size_mb = None
         if not self.is_postgres:
@@ -338,7 +377,7 @@ class ChatHistoryDB:
             # this method entirely, undermining the "never raises" contract
             # this whole helper exists for.
             try:
-                conn.close()
+                self._release_conn(conn)
             except Exception as e:
                 logger.warning(f"ChatHistoryDB: connection close failed: {e}")
 
@@ -412,7 +451,7 @@ class ChatHistoryDB:
             self._execute(conn, "DELETE FROM sessions")
             conn.commit()
         finally:
-            conn.close()
+            self._release_conn(conn)
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────

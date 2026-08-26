@@ -142,10 +142,51 @@ def test_chat_history_create_session(tmp_path):
     """Creates a session and loads its (empty) history without error."""
     from src.db.chat_history import ChatHistoryDB
     db = ChatHistoryDB(db_url=tmp_path / "test.db")
+    assert db._connected, "DB failed to connect — earlier assertions would pass even in no-op mode"
     sid = db.create_session()
     assert len(sid) > 0
     history = db.load_history(sid)
     assert history == []
+
+
+def test_chat_history_round_trip(tmp_path):
+    """Writes a turn and reads it back — catches silent no-op-mode failures
+    and connection-release bugs that 'no exception raised' alone would miss."""
+    from src.db.chat_history import ChatHistoryDB
+    from langchain_core.messages import HumanMessage, AIMessage
+    db = ChatHistoryDB(db_url=tmp_path / "test.db")
+    assert db._connected
+
+    sid = db.create_session(user_id="test-user")
+    db.save_turn(sid, "hello", "hi there")
+    db.save_turn(sid, "second question", "second answer")
+
+    history = db.load_history(sid)
+    assert len(history) == 4
+    assert isinstance(history[0], HumanMessage) and history[0].content == "hello"
+    assert isinstance(history[1], AIMessage) and history[1].content == "hi there"
+    assert isinstance(history[2], HumanMessage) and history[2].content == "second question"
+
+    sessions = db.list_sessions(user_id="test-user")
+    assert len(sessions) == 1
+    assert db.get_session_preview(sid) == "hello"
+
+    db.delete_session(sid)
+    assert db.load_history(sid) == []
+
+
+def test_chat_history_many_connections_reused(tmp_path):
+    """Repeatedly opens/releases connections (what the sidebar does per
+    saved chat) — would have caught the _release_conn recursion bug that
+    only manifests once a connection is actually closed/released."""
+    from src.db.chat_history import ChatHistoryDB
+    db = ChatHistoryDB(db_url=tmp_path / "test.db")
+    sid = db.create_session()
+    for i in range(20):
+        db.save_turn(sid, f"q{i}", f"a{i}")
+        db.get_session_preview(sid)
+        db.list_sessions()
+    assert len(db.load_history(sid)) == 40
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
