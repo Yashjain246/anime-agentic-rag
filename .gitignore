@@ -17,6 +17,7 @@ venv/
 *.egg-info/
 dist/
 build/
+.pytest_cache/
 
 # Data (large files — use Git LFS or keep local)
 data/chroma_anime_db/
