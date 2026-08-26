@@ -1,6 +1,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Anime Agentic RAG — Requirements
 # Install with: pip install -r requirements.txt
+#
+# These are floor versions (>=), not pinned — pip resolves whatever is newest
+# and compatible at install time. For a build known to work exactly as tested,
+# use requirements-lock.txt instead: pip install -r requirements-lock.txt
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Core LangGraph / LangChain ────────────────────────────────────────────────
@@ -8,6 +12,7 @@ langgraph>=0.2.0
 langchain>=0.3.0
 langchain-core>=0.3.0
 langchain-community>=0.3.0
+langchain-classic>=1.0.7      # explicit — src/rag/retriever.py imports it directly
 langchain-google-genai>=2.0.0
 langchain-chroma>=0.2.0
 

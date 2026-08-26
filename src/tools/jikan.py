@@ -47,6 +47,8 @@ def anilist_schedule(anime_title: str) -> str:
             what the user meant, and searching the wrong title returns a
             wrong schedule for a real, different, unrelated anime.
     """
+    if not settings.MAL_CLIENT_ID:
+        return "Airing-schedule lookups are not configured (missing MAL_CLIENT_ID)."
     try:
         headers = {"X-MAL-CLIENT-ID": settings.MAL_CLIENT_ID}
         params = {

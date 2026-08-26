@@ -32,8 +32,10 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str = Field(..., description="Tavily search API key")
     OMDB_API_KEY: str = Field(..., description="OMDB API key for episode ratings")
     MAL_CLIENT_ID: str = Field(
-        default="bf0992117fbb08b2b7677d46a8b05444",
-        description="MyAnimeList API client ID for the airing-schedule tool.",
+        default="",
+        description="MyAnimeList API client ID for the airing-schedule tool. "
+                    "Get one free at myanimelist.net/apiconfig. Leave empty to "
+                    "disable that tool's schedule lookups.",
     )
 
     # ── LangSmith (optional — set to enable tracing) ──────────────────────────
