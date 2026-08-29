@@ -31,7 +31,7 @@ from src.episode.normalizer import ANIME_NAME_ALIASES, SUPPORTED_ANIME
 from src.llm.clients import get_agent_llm, get_query_gen_llm
 from src.persona.builder import get_persona_prompt
 from src.persona.detector import detect_persona_switch
-from src.prompts.respond import build_system_prompt
+from src.prompts.respond import build_system_prompt, build_combined_system_prompt
 from src.prompts.router import RouterOutput, build_classification_prompt
 from src.rag.retriever import build_retriever
 from src.rag.vectorstores import get_recs_vectorstore
@@ -233,6 +233,16 @@ _TOOL_KEYWORDS = [
 ]
 _RECOMMEND_KEYWORDS = ["recommend", "suggest", "what should i watch", "similar to", "like aot",
                        "like jjk", "like naruto", "what to watch"]
+# Strong cues that a message is (also) asking a plot/story question -
+# not exhaustive, just enough to catch the common compound-message shape
+# below. Deliberately narrow: broad words like "happens" alone would also
+# fire on "what happens if I add this to my calendar" and wrongly veto
+# an ordinary TOOL fast-path.
+_LORE_SIGNAL_KEYWORDS = [
+    "happens to", "happened to", "what happens in", "who is", "who was",
+    "how did", "how was", "why did", "was killed", "killed by", " kills ",
+    " dies ", " died ", "death of", "fight between",
+]
 
 def _fast_classify(msg: str) -> str | None:
     """Return intent instantly for obvious cases, None if unsure (LLM needed).
@@ -242,16 +252,30 @@ def _fast_classify(msg: str) -> str | None:
     which meant even a 2-word TOOL confirmation like "add it" was decided
     before it ever got a chance to match anything — same root cause as the
     "yes" bug above, just for slightly longer replies.
+
+    Also bails out (returns None) on a message that matches keyword signals
+    from more than one category — e.g. "how was Muzan killed and when will
+    the next episode of Mushoku Tensei air?" matches both a LORE cue and a
+    TOOL cue. This fast path is single-label by construction (first match
+    wins), so on a genuinely compound message it used to silently classify
+    the whole thing as TOOL and drop the LORE half. Deferring to the LLM
+    router below is what actually lets both halves get classified.
     """
     lower = msg.lower().strip()
     if lower in _GENERAL_SHORTCUTS:
         return "GENERAL"
-    for kw in _TOOL_KEYWORDS:
-        if kw in lower:
-            return "TOOL"
-    for kw in _RECOMMEND_KEYWORDS:
-        if kw in lower:
-            return "RECOMMEND"
+
+    matched_tool = any(kw in lower for kw in _TOOL_KEYWORDS)
+    matched_recommend = any(kw in lower for kw in _RECOMMEND_KEYWORDS)
+    matched_lore = any(kw in lower for kw in _LORE_SIGNAL_KEYWORDS)
+
+    if sum([matched_tool, matched_recommend, matched_lore]) > 1:
+        return None  # looks compound — let the multi-label LLM sort it out
+
+    if matched_tool:
+        return "TOOL"
+    if matched_recommend:
+        return "RECOMMEND"
     return None  # needs LLM
 
 
@@ -259,11 +283,19 @@ def router_node(state: AgentState) -> dict:
     """
     Classifies user intent using Pydantic-enforced structured output.
 
-    Uses RouterOutput(intent: Literal['LORE','RECOMMEND','TOOL','GENERAL'])
+    Uses RouterOutput(intents: list[Literal['LORE','RECOMMEND','TOOL','GENERAL']])
     via .with_structured_output() — guarantees only the 4 allowed values
-    are returned. Falls back to GENERAL on ValidationError.
-    
-    Fast-path: keyword shortcuts skip the LLM for obvious intents.
+    are returned, and that at least one is present. Falls back to
+    ["GENERAL"] on ValidationError.
+
+    Multi-label: a message can need more than one category (see
+    src/prompts/router.py). intents holds every label found, in the order
+    asked; intent stays as intents[0] for anything still expecting a
+    single string. _route_after_router (src/agent/graph.py) fans out to
+    every matching retrieval/tool node in the same turn.
+
+    Fast-path: keyword shortcuts skip the LLM for obvious single-label
+    intents; it bails to the LLM path itself when a message looks compound.
     """
     user_message = _get_last_human_message(state)
 
@@ -271,7 +303,7 @@ def router_node(state: AgentState) -> dict:
     fast_intent = _fast_classify(user_message)
     if fast_intent:
         logger.info(f"[Router] Fast-classified as {fast_intent} (no LLM)")
-        return {"intent": fast_intent}
+        return {"intent": fast_intent, "intents": [fast_intent]}
 
     # ── Slow path: LLM classification ─────────────────────────────────────
     prompt = build_classification_prompt(user_message, _format_recent_history(state))
@@ -279,13 +311,13 @@ def router_node(state: AgentState) -> dict:
     try:
         structured_llm = get_query_gen_llm().with_structured_output(RouterOutput)
         result: RouterOutput = structured_llm.invoke(prompt)
-        intent = result.intent
+        intents = result.intents
     except (ValidationError, Exception) as e:
         logger.warning(f"[Router] Structured output failed ({e}), defaulting to GENERAL")
-        intent = "GENERAL"
+        intents = ["GENERAL"]
 
-    logger.info(f"[Router] Intent: {intent}")
-    return {"intent": intent}
+    logger.info(f"[Router] Intents: {intents}")
+    return {"intent": intents[0], "intents": intents}
 
 
 # ── NODE 2: Lore ──────────────────────────────────────────────────────────────
@@ -345,10 +377,10 @@ def lore_node(state: AgentState) -> dict:
     # retrieval exactly as before — see _mentions_other_known_anime above.
     if not state.get("anime_name") and not _mentions_supported_anime(user_message) and _mentions_other_known_anime(user_message):
         logger.info("[Lore] Query is clearly about an unsupported anime — skipping retrieval")
-        return {"retrieved_context": (
+        return {"retrieved_context": [{"source": "LORE", "text": (
             "ANIME_NOT_SUPPORTED: This app's lore database only covers "
             "Demon Slayer, Jujutsu Kaisen, Attack on Titan, and Chainsaw Man."
-        )}
+        )}]}
 
     if state.get("spoiler_mode", False):
         logger.info("[Lore] Spoiler mode ON: searching all chapters")
@@ -387,7 +419,7 @@ def lore_node(state: AgentState) -> dict:
         context = "\n\n---\n\n".join(context_parts)
 
     logger.info(f"[Lore] Retrieved {len(docs)} chunks")
-    return {"retrieved_context": context}
+    return {"retrieved_context": [{"source": "LORE", "text": context}]}
 
 
 # ── NODE 3: Recommendations ───────────────────────────────────────────────────
@@ -405,7 +437,7 @@ def recs_node(state: AgentState) -> dict:
     docs = recs_retriever.invoke(user_message)
 
     if not docs:
-        return {"retrieved_context": "NO_RECS_FOUND"}
+        return {"retrieved_context": [{"source": "RECOMMEND", "text": "NO_RECS_FOUND"}]}
 
     context_parts = []
     for doc in docs:
@@ -418,7 +450,7 @@ def recs_node(state: AgentState) -> dict:
     context = "\n\n---\n\n".join(context_parts)
 
     logger.info(f"[Recs] Found {len(docs)} recommendations")
-    return {"retrieved_context": context}
+    return {"retrieved_context": [{"source": "RECOMMEND", "text": context}]}
 
 
 # ── NODE 4: Tools ─────────────────────────────────────────────────────────────
@@ -444,11 +476,30 @@ def tools_node(state: AgentState) -> dict:
     # something it never actually called a tool for.
     history_text = _format_recent_history(state)
 
+    # On a compound message (e.g. a LORE question asked alongside a TOOL
+    # request), lore_node is running in parallel this same turn and already
+    # answers the plot/story part from the real Lore RAG — without this
+    # note, this node's own LLM sees the full raw message, including the
+    # LORE half, and tends to reach for anime_news_search to cover it too:
+    # a redundant call, and worse, a plot answer sourced from a general web
+    # search instead of the actual story data.
+    plot_note = ""
+    if "LORE" in (state.get("intents") or []):
+        plot_note = (
+            "\nThis message also contains a plot/story question — that "
+            "part is being answered separately from the real story "
+            "database, not by you. Only handle the parts of the message "
+            "that actually need a tool (schedules, ratings, news, "
+            "screenshots); ignore the plot/story part entirely, including "
+            "not calling anime_news_search for it.\n"
+        )
+
     system = SystemMessage(content=(
         "You are an anime assistant with access to tools. Use the "
         "appropriate tool to answer the user, using RECENT CONVERSATION "
         "below to resolve short follow-ups to whatever was just discussed "
-        "(which anime, which schedule).\n"
+        "(which anime, which schedule)."
+        f"{plot_note}\n"
         "Pass the anime_title argument to anilist_schedule and "
         "trace_moe_vision using the user's own wording as closely as "
         "possible - the tool already does its own fuzzy title search "
@@ -542,22 +593,37 @@ def tools_node(state: AgentState) -> dict:
         )
 
     context = "\n\n".join(tool_results) if tool_results else "No tool results."
-    return {"retrieved_context": context}
+    return {"retrieved_context": [{"source": "TOOL", "text": context}]}
 
 
 # ── NODE 5: Respond ───────────────────────────────────────────────────────────
 def respond_node(state: AgentState) -> dict:
     """
     Generates the final user-facing response.
-    Reads retrieved_context (from lore/recs/tools node) and generates
-    a response in the selected persona's voice.
+    Reads retrieved_context (from whichever of lore/recs/tools node ran
+    this turn — possibly more than one, for a compound question) and
+    generates a response in the selected persona's voice.
     """
     user_message = _get_last_human_message(state)
     persona_text = get_persona_prompt(state.get("persona", "Default"))
-    context = state.get("retrieved_context", "")
     intent = state.get("intent", "GENERAL")
+    intents = state.get("intents") or [intent]
 
-    system_content, _ = build_system_prompt(intent, persona_text, context)
+    # {"LORE": "...", "TOOL": "...", ...} — keyed by whichever node(s)
+    # actually ran; a node not in this turn's intents simply never ran,
+    # so there's no empty/stale entry to worry about.
+    context_by_source = {
+        block["source"]: block["text"]
+        for block in state.get("retrieved_context", [])
+    }
+
+    if len(intents) <= 1:
+        # Overwhelmingly the common case — identical prompt to before this
+        # multi-intent change, byte for byte.
+        context = context_by_source.get(intent, "")
+        system_content, _ = build_system_prompt(intent, persona_text, context)
+    else:
+        system_content, _ = build_combined_system_prompt(intents, persona_text, context_by_source)
 
     # Give the LLM the recent exchange so it has conversational memory
     # across turns (e.g. understanding "yes" as a reply to its own question).

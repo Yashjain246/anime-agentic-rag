@@ -50,13 +50,16 @@ def run_agent_with_state(
 
     Returns:
         {
-          'reply':           str  — the bot's text response,
-          'persona':         str  — current persona after this turn,
-          'intent':          str  — LORE/RECOMMEND/TOOL/GENERAL/...,
-          'messages':        list — full updated conversation history,
-          'current_chapter': int  — updated chapter cap (may change via episode_node),
-          'anime_name':      str  — current anime name,
-          'spoiler_mode':    bool — current spoiler mode,
+          'reply':             str  — the bot's text response,
+          'persona':           str  — current persona after this turn,
+          'intent':            str  — primary intent (intents[0]),
+          'intents':           list — every intent this turn, e.g. ["LORE", "TOOL"]
+                                       for a compound question,
+          'messages':          list — full updated conversation history,
+          'current_chapter':   int  — updated chapter cap (may change via episode_node),
+          'anime_name':        str  — current anime name,
+          'spoiler_mode':      bool — current spoiler mode,
+          'retrieved_context': list — [{"source": "LORE"/"RECOMMEND"/"TOOL", "text": ...}, ...]
         }
     """
     messages = list(history) if history else []
@@ -65,12 +68,13 @@ def run_agent_with_state(
     initial_state = AgentState(
         messages=messages,
         intent="",
+        intents=[],
         anime_name=anime_name,
         current_chapter=current_chapter,
         spoiler_mode=spoiler_mode,
         persona=persona,
         image_path=image_path,
-        retrieved_context="",
+        retrieved_context=[],
         tool_iteration=0,
     )
 
@@ -96,10 +100,12 @@ def run_agent_with_state(
         "reply": reply,
         "persona": result.get("persona", persona),
         "intent": result.get("intent", "GENERAL"),
+        "intents": result.get("intents", [result.get("intent", "GENERAL")]),
         "messages": result["messages"],
         "current_chapter": result.get("current_chapter", current_chapter),
         "anime_name": result.get("anime_name", anime_name),
         "spoiler_mode": result.get("spoiler_mode", spoiler_mode),
+        "retrieved_context": result.get("retrieved_context", []),
     }
 
 
@@ -126,12 +132,13 @@ def stream_agent_with_state(
     initial_state = AgentState(
         messages=messages,
         intent="",
+        intents=[],
         anime_name=anime_name,
         current_chapter=current_chapter,
         spoiler_mode=spoiler_mode,
         persona=persona,
         image_path=image_path,
-        retrieved_context="",
+        retrieved_context=[],
         tool_iteration=0,
     )
 
@@ -182,11 +189,12 @@ def stream_agent_with_state(
             "reply": reply,
             "persona": current_state.get("persona", persona),
             "intent": current_state.get("intent", "GENERAL"),
+            "intents": current_state.get("intents") or [current_state.get("intent", "GENERAL")],
             "messages": current_state["messages"],
             "current_chapter": current_state.get("current_chapter", current_chapter),
             "anime_name": current_state.get("anime_name", anime_name),
             "spoiler_mode": current_state.get("spoiler_mode", spoiler_mode),
-            "retrieved_context": current_state.get("retrieved_context", ""),
+            "retrieved_context": current_state.get("retrieved_context", []),
         }
     }
 

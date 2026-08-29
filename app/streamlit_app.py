@@ -398,10 +398,17 @@ _INTENT_BADGE_CLASSES = {
     "EPISODE_UPDATE": "badge-persona",
 }
 
-def _intent_badge(intent: str) -> str:
-    cls = _INTENT_BADGE_CLASSES.get(intent, "badge-general")
-    label = intent.replace("_", " ").title()
-    return f'<span class="intent-badge {cls}">{label}</span>'
+def _intent_badge(intent: str | list[str]) -> str:
+    """Renders one badge per intent — most messages have exactly one, a
+    compound question (e.g. a LORE question plus a TOOL request) has more
+    than one and gets a badge for each, in the order asked."""
+    intents = intent if isinstance(intent, list) else [intent]
+    spans = []
+    for i in intents:
+        cls = _INTENT_BADGE_CLASSES.get(i, "badge-general")
+        label = i.replace("_", " ").title()
+        spans.append(f'<span class="intent-badge {cls}">{label}</span>')
+    return "".join(spans)
 
 # ── Helper: make bare URLs (e.g. a Google Calendar event link) clickable ──────
 # The bot-bubble is injected as raw HTML (unsafe_allow_html=True on a plain
@@ -1052,7 +1059,7 @@ for msg in st.session_state.messages:
                         unsafe_allow_html=True,
                     )
             if msg.get("intent"):
-                st.markdown(_intent_badge(msg["intent"]), unsafe_allow_html=True)
+                st.markdown(_intent_badge(msg.get("intents") or msg["intent"]), unsafe_allow_html=True)
             st.markdown(
                 f'<div class="bot-bubble">{_linkify(html.escape(msg["content"]))}</div>',
                 unsafe_allow_html=True,
@@ -1339,7 +1346,12 @@ if user_input:
                         _start_step(node_desc)
 
                         if node == "tools_node":
-                            context = event["update"].get("retrieved_context", "")
+                            # retrieved_context is now a list of {"source", "text"}
+                            # blocks (one per node that ran this turn, to support
+                            # compound LORE+TOOL messages) — tools_node's own
+                            # delta is always exactly one TOOL-sourced block.
+                            tool_blocks = event["update"].get("retrieved_context") or []
+                            context = next((b["text"] for b in tool_blocks if b.get("source") == "TOOL"), "")
                             tools_called = [line.strip("[]:") for line in context.split("\n") if line.startswith("[") and line.endswith("]:")]
                             if tools_called:
                                 # Friendly labels, not raw function names —
@@ -1359,6 +1371,7 @@ if user_input:
 
             reply = result["reply"]
             intent = result["intent"]
+            intents = result.get("intents") or [intent]
 
             # Update session state from agent result
             st.session_state.persona = result["persona"]
@@ -1372,28 +1385,32 @@ if user_input:
             clean_reply = re.sub(r'!\[.*?\]\(.*?\)', '', reply).strip()
 
             # If a tool generated a chart, extract directly from retrieved_context
+            # (a list of {"source", "text"} blocks — TOOL may be one of several
+            # if this was a compound message, e.g. a LORE question asked alongside it)
             chart_path = None
-            if intent == "TOOL":
-                context_str = result.get("retrieved_context", "")
+            if "TOOL" in intents:
+                tool_blocks = result.get("retrieved_context") or []
+                context_str = next((b["text"] for b in tool_blocks if b.get("source") == "TOOL"), "")
                 for line in context_str.split("\n"):
                     if line.startswith("Chart saved:"):
                         extracted_path = line.replace("Chart saved:", "").strip()
                         if Path(extracted_path).exists():
                             chart_path = extracted_path
                         break
-                    
+
             # Save the message with image to session state
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": clean_reply,
                 "intent": intent,
+                "intents": intents,
                 "image": chart_path,
                 "steps": agent_steps
             })
 
             # ── Stream response word-by-word for ChatGPT-like feel ────────
             import time as _time
-            badge = _intent_badge(intent)
+            badge = _intent_badge(intents)
             escaped_reply = html.escape(clean_reply)
             words = escaped_reply.split(" ")
             streamed = ""
