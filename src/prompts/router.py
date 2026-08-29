@@ -65,7 +65,16 @@ the order the user asked — most messages need only one, but don't force
 two genuinely distinct asks into a single label just because the message
 is one sentence. For EACH one, also give its own focused `query`: just
 that part of the message, standing alone, with no name or topic that
-actually belongs to a different part.
+actually belongs to a different part — EXCEPT when the same
+show/character is genuinely the subject of more than one part (e.g.
+"recommend anime like Frieren and who is Frieren as a character?" —
+name it in both queries, don't drop it to a pronoun in the second one
+assuming the reader remembers the first).
+
+If two DIFFERENT things in the message both need the same category
+(e.g. two separate TOOL asks — a schedule AND a ratings request), do
+NOT list that category twice. List it once and combine both asks into
+one query for that single entry.
 
 LORE - asking what happens in the story: plot events, character actions,
   abilities, deaths, relationships. Anchored in the source material itself.

@@ -300,3 +300,64 @@ def test_intent_query_falls_back_to_full_message():
 
     state_no_queries = {"messages": [HumanMessage(content="Who is Gojo?")], "intent_queries": {}}
     assert _intent_query(state_no_queries, "LORE") == "Who is Gojo?"
+
+
+def test_mentions_supported_anime_excludes_episode_mapped_only_shows():
+    """Regression: _mentions_supported_anime used to check EVERY alias in
+    ANIME_NAME_ALIASES, not just the 4 Lore-DB anime's aliases. Frieren and
+    Solo Leveling are in that alias map (they're episode-mapped) but are
+    NOT lore-indexed - so a message naming Frieren wrongly reported "yes,
+    a supported anime is named", which skipped the ANIME_NOT_SUPPORTED
+    refusal and let lore_node silently retrieve irrelevant chunks from
+    the 4 supported anime instead of honestly declining, the same failure
+    shape as the One Piece/AoT bug. Found via 30-case live testing:
+    "Recommend anime like Frieren and who is Frieren as a character?"."""
+    from src.agent.nodes import _mentions_supported_anime, _mentions_other_known_anime
+
+    assert _mentions_supported_anime("Who is Frieren as a character?") is False
+    assert _mentions_other_known_anime("Who is Frieren as a character?") is True
+
+    assert _mentions_supported_anime("What happened to Frieren's party?") is False
+    assert _mentions_supported_anime("Recommend anime like Solo Leveling") is False
+
+    # The 4 actually-supported anime must still correctly match.
+    assert _mentions_supported_anime("What happens to Gojo in JJK?") is True
+    assert _mentions_supported_anime("Tell me about Demon Slayer") is True
+
+
+def test_router_node_merges_duplicate_intent_queries_not_overwrites():
+    """Regression: router_node's intent_queries used to be built with
+    {item.intent: item.query for item in result.items} - a plain dict
+    comprehension, which means when the router legitimately emits the
+    same intent twice (e.g. a schedule ask AND a separate ratings ask are
+    both TOOL), the second query silently overwrote the first instead of
+    both surviving. Confirmed live: "what's the AOT rating graph, when's
+    the next episode airing?" classified as ['TOOL', 'TOOL'] with two
+    genuinely distinct, correctly-scoped queries from the LLM, but only
+    one reached tools_node - the ratings half vanished entirely and
+    omdb_graph_generator was never called for it. This test locks in the
+    merge behavior directly (no live LLM call) by driving router_node's
+    same code path with a fake structured-output result."""
+    from unittest.mock import patch
+    from langchain_core.messages import HumanMessage
+    from src.prompts.router import RouterOutput, RouterIntentItem
+    from src.agent.nodes import router_node
+
+    fake_result = RouterOutput(items=[
+        RouterIntentItem(intent="TOOL", query="Show me the AOT rating graph."),
+        RouterIntentItem(intent="TOOL", query="When is the next AOT episode airing?"),
+    ])
+    state = {"messages": [HumanMessage(content="what's the AOT rating graph, when's the next episode airing?")]}
+
+    # Force the slow (LLM) path regardless of what the fast keyword path
+    # would do with this message — this test is about router_node's
+    # dedup/merge logic downstream of the LLM call, not the fast path.
+    with patch("src.agent.nodes._fast_classify", return_value=None), \
+         patch("src.agent.nodes.get_query_gen_llm") as mock_llm:
+        mock_llm.return_value.with_structured_output.return_value.invoke.return_value = fake_result
+        result = router_node(state)
+
+    assert result["intents"] == ["TOOL"]  # deduped, not ['TOOL', 'TOOL']
+    combined = result["intent_queries"]["TOOL"]
+    assert "rating graph" in combined.lower()
+    assert "episode airing" in combined.lower()  # both halves survived, merged

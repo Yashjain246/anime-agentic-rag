@@ -345,8 +345,27 @@ def router_node(state: AgentState) -> dict:
     try:
         structured_llm = get_query_gen_llm().with_structured_output(RouterOutput)
         result: RouterOutput = structured_llm.invoke(prompt)
-        intents = [item.intent for item in result.items]
-        intent_queries = {item.intent: item.query for item in result.items}
+        # Dedupe intents (preserving first-occurrence order) and merge the
+        # queries of any repeats instead of letting a later one silently
+        # overwrite an earlier one. The router can legitimately emit the
+        # same intent twice for a message with two distinct asks of the
+        # same kind (e.g. "what's the AOT rating graph, when's the next
+        # episode airing?" is two TOOL asks) — a plain {item.intent:
+        # item.query} dict comprehension kept only the LAST one, silently
+        # dropping the other tool request entirely (confirmed live: the
+        # ratings half vanished and tools_node never called
+        # omdb_graph_generator for it). TOOL in particular already handles
+        # more than one ask fine in a single pass — its tool-calling loop
+        # supports multiple tool calls per turn — so merging into one
+        # query is the correct fix, not routing to two separate nodes.
+        intents: list[str] = []
+        intent_queries: dict[str, str] = {}
+        for item in result.items:
+            if item.intent not in intent_queries:
+                intents.append(item.intent)
+                intent_queries[item.intent] = item.query
+            else:
+                intent_queries[item.intent] += " " + item.query
     except (ValidationError, Exception) as e:
         logger.warning(f"[Router] Structured output failed ({e}), defaulting to GENERAL")
         intents = ["GENERAL"]
@@ -359,10 +378,22 @@ def router_node(state: AgentState) -> dict:
 # ── NODE 2: Lore ──────────────────────────────────────────────────────────────
 def _mentions_supported_anime(text: str) -> bool:
     """True if the message names (or aliases) one of the 4 anime actually
-    indexed in the Lore DB."""
+    indexed in the Lore DB.
+
+    Bug fixed here: this used to check membership against EVERY alias key
+    in ANIME_NAME_ALIASES, not just the ones for the 4 Lore-DB anime.
+    ANIME_NAME_ALIASES also maps aliases for Frieren and Solo Leveling
+    (episode-mapped but NOT lore-indexed) to their canonical names — so a
+    message naming Frieren made this function wrongly report "yes, a
+    supported anime is named", which defeated the ANIME_NOT_SUPPORTED
+    refusal below and let lore_node silently retrieve irrelevant chunks
+    from the 4 supported anime and answer a Frieren question from the
+    LLM's own general knowledge instead of honestly declining — the exact
+    same failure mode as the One Piece/AoT bug, just less obviously wrong
+    since the LLM's own Frieren knowledge happened to be accurate."""
     lower = text.lower()
     return (
-        any(alias in lower for alias in ANIME_NAME_ALIASES)
+        any(alias in lower for alias, canonical in ANIME_NAME_ALIASES.items() if canonical in SUPPORTED_ANIME)
         or any(name.lower() in lower for name in SUPPORTED_ANIME)
     )
 
