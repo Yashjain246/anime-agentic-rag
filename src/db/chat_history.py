@@ -31,7 +31,7 @@ class ChatHistoryDB:
 
     def __init__(self, db_url: str | Path | None = None):
         url = str(db_url) if db_url else settings.DATABASE_URL
-        
+
         if url and url.startswith("postgres"):
             self.is_postgres = True
             self.db_url = url.replace("postgres://", "postgresql://", 1)
@@ -39,6 +39,13 @@ class ChatHistoryDB:
             self.is_postgres = False
             if url and url.startswith("sqlite:///"):
                 self.db_url = url.replace("sqlite:///", "")
+            elif url:
+                # A bare filesystem path (e.g. a Path object passed directly,
+                # as every test in tests/test_smoke.py does via tmp_path) —
+                # previously fell through to the hardcoded default below,
+                # silently ignoring the caller's path and pointing every
+                # "isolated" test db at the real project chat_history.db.
+                self.db_url = url
             else:
                 self.db_url = "chat_history.db"
 
@@ -443,20 +450,44 @@ class ChatHistoryDB:
         rating: str = "",
         comment: str = "",
     ) -> None:
-        """Log one overall-project feedback event — a rating click and a
-        written comment are independent submissions (not upserted against
-        each other), since this isn't tied to any single reply and a user
-        may rate once, then leave a comment separately, or do either more
-        than once over time. Best-effort: a DB hiccup here should never
-        break the chat itself, just silently drop that one submission."""
+        """One feedback row per user_id — a repeat submission updates that
+        row in place instead of creating a second one. rating and comment
+        are still independent: sending just a rating updates the rating
+        without clearing an existing comment, and vice versa, so "rate
+        now, add a comment later" still works as one evolving entry rather
+        than two.
+
+        Implemented as an app-level SELECT-then-INSERT/UPDATE rather than a
+        DB-level UNIQUE constraint + upsert, since the site_feedback table
+        already exists in production without one — adding it now would
+        need a migration this file has no mechanism for. The tiny race
+        window (two near-simultaneous submissions from the same user_id
+        both inserting) is acceptable here: feedback clicks aren't
+        concurrent in practice.
+
+        Best-effort: a DB hiccup here should never break the chat itself,
+        just silently drop that one submission."""
         now = datetime.now(timezone.utc).isoformat()
 
         def _run(conn):
-            self._execute(
+            existing = self._execute(
                 conn,
-                "INSERT INTO site_feedback (user_id, rating, comment, created_at) VALUES (?,?,?,?)",
-                (user_id, rating, comment, now),
-            )
+                "SELECT id, rating, comment FROM site_feedback WHERE user_id=?",
+                (user_id,),
+            ).fetchone()
+
+            if existing:
+                self._execute(
+                    conn,
+                    "UPDATE site_feedback SET rating=?, comment=?, created_at=? WHERE id=?",
+                    (rating or existing["rating"], comment or existing["comment"], now, existing["id"]),
+                )
+            else:
+                self._execute(
+                    conn,
+                    "INSERT INTO site_feedback (user_id, rating, comment, created_at) VALUES (?,?,?,?)",
+                    (user_id, rating, comment, now),
+                )
             conn.commit()
 
         self._safe(_run)

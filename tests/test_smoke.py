@@ -189,6 +189,32 @@ def test_chat_history_many_connections_reused(tmp_path):
     assert len(db.load_history(sid)) == 40
 
 
+def test_site_feedback_one_row_per_user(tmp_path):
+    """A user can only ever have one site_feedback row — a repeat
+    submission updates it in place, and rating/comment update
+    independently without clobbering each other."""
+    from src.db.chat_history import ChatHistoryDB
+    db = ChatHistoryDB(db_url=tmp_path / "test.db")
+
+    db.add_site_feedback("user1", rating="up")
+    assert len(db.get_recent_feedback()) == 1
+
+    db.add_site_feedback("user1", comment="nice project")
+    fb = db.get_recent_feedback()
+    assert len(fb) == 1
+    assert fb[0]["rating"] == "up"  # preserved, not cleared by the comment-only update
+    assert fb[0]["comment"] == "nice project"
+
+    db.add_site_feedback("user1", rating="down")
+    fb = db.get_recent_feedback()
+    assert len(fb) == 1
+    assert fb[0]["rating"] == "down"  # overwritten
+    assert fb[0]["comment"] == "nice project"  # still preserved
+
+    db.add_site_feedback("user2", rating="up")
+    assert len(db.get_recent_feedback()) == 2  # a different user gets their own row
+
+
 # ── Prompts ───────────────────────────────────────────────────────────────────
 
 def test_router_prompt():
