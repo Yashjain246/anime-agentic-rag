@@ -12,6 +12,15 @@ Fields:
                      order asked (e.g. ["LORE", "TOOL"] for a compound
                      question). Drives fan-out to multiple retrieval/tool
                      nodes in the same turn — see _route_after_router.
+  intent_queries:    {intent: focused sub-query} for each entry in intents
+                     — e.g. {"LORE": "How was Muzan killed?", "TOOL": "When
+                     will the next episode of X air?"}. lore_node/recs_node/
+                     tools_node use their own entry instead of the raw
+                     message so one part of a compound question can't leak
+                     a name/topic into another part's retrieval or tool
+                     call. Falls back to the raw message if a node's intent
+                     has no entry (shouldn't happen, but retrieval on the
+                     full message is a safe default over erroring).
   anime_name:        Canonical anime name for Lore DB filtering
   current_chapter:   Spoiler cap — chapters above this are blocked
   spoiler_mode:      True = no chapter cap (full DB access)
@@ -38,6 +47,7 @@ class AgentState(TypedDict):
     messages:          Annotated[list, operator.add]  # conversation history
     intent:            str                             # primary intent (intents[0])
     intents:           list[str]                       # every intent this turn, in order
+    intent_queries:    dict[str, str]                   # {intent: focused sub-query}
     anime_name:        str                             # e.g. "Jujutsu Kaisen"
     current_chapter:   int                             # spoiler cap
     spoiler_mode:      bool                            # True = no cap

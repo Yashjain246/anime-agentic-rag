@@ -209,12 +209,17 @@ def build_combined_system_prompt(
     to the TOOL section's result (or vice versa).
 
     GENERAL contributes no retrieval of its own, so when it appears
-    alongside a real intent it's dropped here — respond_node already has
-    full persona + conversation history, which is all a GENERAL framing
-    would add anyway. If GENERAL is the only intent, build_system_prompt
-    is used instead (see respond_node), so this function is never called
-    with intents == ["GENERAL"].
+    alongside a real intent it gets no section of its own here — but it's
+    still noted below so the reply doesn't silently drop it (e.g. "Hi!
+    Also, who is Muzan?" used to jump straight into Muzan and never
+    acknowledge the greeting at all: the LORE section's "answer ONLY
+    using the context below" framing was the only instruction the model
+    saw, and with no mention that a casual part existed too, it read as
+    covering the whole reply). If GENERAL is the only intent,
+    build_system_prompt is used instead (see respond_node), so this
+    function is never called with intents == ["GENERAL"].
     """
+    had_general = "GENERAL" in intents
     real_intents = [i for i in intents if i != "GENERAL"] or intents
 
     persona_shown = False
@@ -233,12 +238,21 @@ def build_combined_system_prompt(
         if cleaned:
             cleaned_parts.append(cleaned)
 
+    general_note = (
+        "\nThe message also has a casual/conversational part (a greeting, "
+        "small talk, an opinion question) with no dedicated section below "
+        "— acknowledge it naturally too, briefly, using your own "
+        "knowledge and personality, alongside the parts that do have "
+        "sections.\n"
+    ) if had_general else ""
+
     combined = (
         "The user's message asks for more than one thing. Answer every "
         "part below, using ONLY the rules and context given for that part "
         "— don't mix a part's grounding rules or context into another "
         "part's answer. Weave the parts into one natural reply rather than "
-        "labeling them 'Part 1' / 'Part 2' for the user.\n\n"
+        "labeling them 'Part 1' / 'Part 2' for the user."
+        f"{general_note}\n"
         + "\n\n".join(sections)
     )
     return combined + NATURAL_TONE_GUIDELINES, "\n\n---\n\n".join(cleaned_parts)

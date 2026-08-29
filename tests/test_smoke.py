@@ -233,3 +233,70 @@ def test_respond_prompt_spoiler_block():
     from src.prompts.respond import build_system_prompt
     system, _ = build_system_prompt("LORE", "You are an assistant.", "NO_CONTEXT_FOUND")
     assert "spoiler" in system.lower() or "beyond" in system.lower()
+
+
+def test_respond_prompt_combined_multi_intent():
+    """A compound message gets one section per intent, each grounded only
+    in its own context — not one blended prompt."""
+    from src.prompts.respond import build_combined_system_prompt
+    system, _ = build_combined_system_prompt(
+        ["LORE", "TOOL"],
+        "You are an assistant.",
+        {"LORE": "Chapter 1: ...", "TOOL": "Broadcast: Sunday at 21:00 JST"},
+    )
+    assert "Chapter 1" in system
+    assert "Broadcast: Sunday" in system
+
+
+def test_respond_prompt_combined_acknowledges_general():
+    """A GENERAL part riding along a real intent (e.g. "Hi! Who is Muzan?")
+    must not get silently dropped just because it has no section of its
+    own — see build_combined_system_prompt's had_general handling."""
+    from src.prompts.respond import build_combined_system_prompt
+    system, _ = build_combined_system_prompt(
+        ["GENERAL", "LORE"], "You are an assistant.", {"LORE": "Chapter 1: ..."},
+    )
+    assert "casual" in system.lower() or "conversational" in system.lower()
+
+
+def test_lore_guard_uses_scoped_query_not_raw_message():
+    """Regression: lore_node used to run its unsupported-anime guard on
+    the FULL raw message. In a compound message like "What happens in
+    One Piece and when's the next JJK episode?", "JJK" belongs to the
+    TOOL half but still made _mentions_supported_anime return True on the
+    raw text — which skipped the ANIME_NOT_SUPPORTED refusal and let it
+    silently retrieve and answer with a completely unrelated anime's
+    lore. router_node's per-intent query decomposition (intent_queries)
+    is what fixes this: lore_node must reason about its own scoped query,
+    not the raw message that also contains the other intent's content."""
+    from src.agent.nodes import _mentions_supported_anime, _mentions_other_known_anime
+
+    raw_message = "What happens in One Piece and when's the next JJK episode?"
+    scoped_lore_query = "What happens in One Piece?"
+
+    # The bug: JJK (from the TOOL half) fools the guard on the raw message.
+    assert _mentions_supported_anime(raw_message) is True
+
+    # The fix: scoped to just the LORE part, the guard correctly sees no
+    # supported anime named, and the unsupported-anime refusal fires.
+    assert _mentions_supported_anime(scoped_lore_query) is False
+    assert _mentions_other_known_anime(scoped_lore_query) is True
+
+
+def test_intent_query_falls_back_to_full_message():
+    """_intent_query returns the router's scoped sub-query when present,
+    and falls back to the full message (never errors) when router_node
+    didn't supply one for that intent — e.g. the ValidationError fallback
+    path, or a state built without intent_queries at all."""
+    from langchain_core.messages import HumanMessage
+    from src.agent.nodes import _intent_query
+
+    state = {
+        "messages": [HumanMessage(content="How was Muzan killed and when's JJK airing?")],
+        "intent_queries": {"LORE": "How was Muzan killed?", "TOOL": "When's JJK airing?"},
+    }
+    assert _intent_query(state, "LORE") == "How was Muzan killed?"
+    assert _intent_query(state, "TOOL") == "When's JJK airing?"
+
+    state_no_queries = {"messages": [HumanMessage(content="Who is Gojo?")], "intent_queries": {}}
+    assert _intent_query(state_no_queries, "LORE") == "Who is Gojo?"

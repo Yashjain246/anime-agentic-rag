@@ -49,6 +49,17 @@ def _get_last_human_message(state: AgentState) -> str:
     return ""
 
 
+def _intent_query(state: AgentState, intent: str) -> str:
+    """The router's focused sub-query for this node's intent — just the
+    slice of a compound message relevant to it (see RouterOutput /
+    intent_queries in state.py), so a name or topic from a different part
+    of the message can't leak into this node's retrieval or tool call.
+    Falls back to the full raw message if router_node didn't supply one
+    (shouldn't happen, but retrieving on the full message is a safer
+    default than erroring)."""
+    return (state.get("intent_queries") or {}).get(intent) or _get_last_human_message(state)
+
+
 def _format_recent_history(state: AgentState, max_messages: int = 6) -> str:
     """
     Format the last few turns as a plain-text block, excluding the current
@@ -323,7 +334,10 @@ def router_node(state: AgentState) -> dict:
     fast_intent = _fast_classify(user_message)
     if fast_intent:
         logger.info(f"[Router] Fast-classified as {fast_intent} (no LLM)")
-        return {"intent": fast_intent, "intents": [fast_intent]}
+        # A fast-classified message is by definition the simple, single-part
+        # case (the compound guard above already bailed otherwise) — its
+        # own query IS the whole message, nothing to scope down.
+        return {"intent": fast_intent, "intents": [fast_intent], "intent_queries": {fast_intent: user_message}}
 
     # ── Slow path: LLM classification ─────────────────────────────────────
     prompt = build_classification_prompt(user_message, _format_recent_history(state))
@@ -331,13 +345,15 @@ def router_node(state: AgentState) -> dict:
     try:
         structured_llm = get_query_gen_llm().with_structured_output(RouterOutput)
         result: RouterOutput = structured_llm.invoke(prompt)
-        intents = result.intents
+        intents = [item.intent for item in result.items]
+        intent_queries = {item.intent: item.query for item in result.items}
     except (ValidationError, Exception) as e:
         logger.warning(f"[Router] Structured output failed ({e}), defaulting to GENERAL")
         intents = ["GENERAL"]
+        intent_queries = {"GENERAL": user_message}
 
     logger.info(f"[Router] Intents: {intents}")
-    return {"intent": intents[0], "intents": intents}
+    return {"intent": intents[0], "intents": intents, "intent_queries": intent_queries}
 
 
 # ── NODE 2: Lore ──────────────────────────────────────────────────────────────
@@ -385,7 +401,13 @@ def lore_node(state: AgentState) -> dict:
     Retrieves relevant manga chapters from the Lore DB.
     Applies the spoiler firewall based on current_chapter and spoiler_mode.
     """
-    user_message = _get_last_human_message(state)
+    # Scoped to just the LORE part of the message — using the raw message
+    # here let a supported-anime name from a different part of a compound
+    # question (e.g. "JJK" in "...and when's the next JJK episode?") fool
+    # this guard into thinking a supported anime WAS named, skipping the
+    # unsupported-anime refusal below and silently retrieving/answering
+    # with a completely unrelated anime's lore instead.
+    user_message = _intent_query(state, "LORE")
 
     # Only short-circuit when the question clearly names a different,
     # specific anime we don't have lore for — asking about One Piece
@@ -448,7 +470,7 @@ def recs_node(state: AgentState) -> dict:
     Retrieves anime recommendations from the Recs DB (500 anime synopses).
     Simple semantic similarity search — no spoiler filter needed.
     """
-    user_message = _get_last_human_message(state)
+    user_message = _intent_query(state, "RECOMMEND")
     logger.info(f"[Recs] Searching anime synopses for top {settings.RECS_TOP_K} matches")
     recs_retriever = get_recs_vectorstore().as_retriever(
         search_type="similarity",
@@ -485,7 +507,7 @@ def tools_node(state: AgentState) -> dict:
     llm_with_tools = get_agent_llm().bind_tools(TOOLS)
     tool_executor = ToolNode(TOOLS)
 
-    user_message = _get_last_human_message(state)
+    user_message = _intent_query(state, "TOOL")
     if state.get("image_path"):
         user_message = f'{user_message} [image:{state["image_path"]}]'
 
