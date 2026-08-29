@@ -253,17 +253,37 @@ def _fast_classify(msg: str) -> str | None:
     before it ever got a chance to match anything — same root cause as the
     "yes" bug above, just for slightly longer replies.
 
-    Also bails out (returns None) on a message that matches keyword signals
-    from more than one category — e.g. "how was Muzan killed and when will
-    the next episode of Mushoku Tensei air?" matches both a LORE cue and a
-    TOOL cue. This fast path is single-label by construction (first match
-    wins), so on a genuinely compound message it used to silently classify
-    the whole thing as TOOL and drop the LORE half. Deferring to the LLM
-    router below is what actually lets both halves get classified.
+    Also bails out (returns None) on a message that looks compound, two
+    ways:
+      1. It matches keyword signals from more than one category — e.g.
+         "how was Muzan killed and when will the next episode of Mushoku
+         Tensei air?" matches both a LORE cue and a TOOL cue.
+      2. It contains a coordinating conjunction ("and", "also", "as well",
+         "plus") — this catches compound messages even when the second
+         half doesn't happen to match any curated keyword list at all
+         (e.g. "recommend anime like Demon Slayer and also generate its
+         rating graph" — "rating graph" doesn't match the "ratings"
+         keyword, so check #1 alone missed this one in practice).
+    Enumerating every possible phrasing for #1 is a losing game — #2 is
+    the actual backstop: a message with "and"/"also"/etc. joining two
+    asks is, by definition, not the simple single-part case this fast
+    path exists for, regardless of which keywords it happens to contain.
+    This fast path is single-label by construction (first match wins),
+    so on a genuinely compound message it used to silently classify the
+    whole thing as one label and drop the rest. Deferring to the LLM
+    router below is what actually lets every part get classified.
     """
     lower = msg.lower().strip()
     if lower in _GENERAL_SHORTCUTS:
         return "GENERAL"
+
+    padded = f" {lower} "
+    looks_compound = any(
+        marker in padded
+        for marker in (" and ", " also ", " as well ", " plus ", " & ")
+    )
+    if looks_compound:
+        return None
 
     matched_tool = any(kw in lower for kw in _TOOL_KEYWORDS)
     matched_recommend = any(kw in lower for kw in _RECOMMEND_KEYWORDS)
@@ -476,22 +496,30 @@ def tools_node(state: AgentState) -> dict:
     # something it never actually called a tool for.
     history_text = _format_recent_history(state)
 
-    # On a compound message (e.g. a LORE question asked alongside a TOOL
-    # request), lore_node is running in parallel this same turn and already
-    # answers the plot/story part from the real Lore RAG — without this
-    # note, this node's own LLM sees the full raw message, including the
-    # LORE half, and tends to reach for anime_news_search to cover it too:
-    # a redundant call, and worse, a plot answer sourced from a general web
-    # search instead of the actual story data.
+    # On a compound message (e.g. a LORE or RECOMMEND question asked
+    # alongside a TOOL request), lore_node/recs_node are running in
+    # parallel this same turn and already answer their part from the real
+    # Lore RAG / Recs DB — without this note, this node's own LLM sees the
+    # full raw message, including those other parts, and tends to reach
+    # for anime_news_search to cover them too: a redundant call, and
+    # worse, an answer sourced from a general web search (possibly
+    # recommending or describing something never vetted through the real
+    # database at all) slipping into the final reply alongside the
+    # correctly-sourced part.
+    other_parts = [i for i in (state.get("intents") or []) if i in ("LORE", "RECOMMEND")]
     plot_note = ""
-    if "LORE" in (state.get("intents") or []):
+    if other_parts:
+        labels = " and ".join(
+            "a plot/story question" if i == "LORE" else "an anime recommendation request"
+            for i in other_parts
+        )
         plot_note = (
-            "\nThis message also contains a plot/story question — that "
-            "part is being answered separately from the real story "
-            "database, not by you. Only handle the parts of the message "
-            "that actually need a tool (schedules, ratings, news, "
-            "screenshots); ignore the plot/story part entirely, including "
-            "not calling anime_news_search for it.\n"
+            f"\nThis message also contains {labels} — that part is being "
+            "answered separately, from the real story database / "
+            "recommendation database, not by you. Only handle the parts "
+            "of the message that actually need a tool (schedules, "
+            "ratings, news, screenshots); ignore the other part(s) "
+            "entirely, including not calling anime_news_search for them.\n"
         )
 
     system = SystemMessage(content=(
