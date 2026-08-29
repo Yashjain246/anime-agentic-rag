@@ -948,6 +948,29 @@ with st.sidebar:
                     if stats["db_size_mb"] is not None:
                         st.metric("DB file size", f"{stats['db_size_mb']:.2f} MB")
 
+                    st.divider()
+                    st.caption("Feedback")
+                    feedback = db.get_recent_feedback(limit=50)
+                    if feedback:
+                        up = sum(1 for f in feedback if f["rating"] == "up")
+                        down = sum(1 for f in feedback if f["rating"] == "down")
+                        st.caption(f"{up} up / {down} down (most recent {len(feedback)} rows)")
+                        st.dataframe(
+                            [
+                                {
+                                    "rating": f["rating"] or "—",
+                                    "comment": f["comment"] or "—",
+                                    "when": f["created_at"],
+                                }
+                                for f in feedback
+                            ],
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                    else:
+                        st.caption("No feedback yet.")
+
+                    st.divider()
                     st.warning("Clearing deletes ALL users' chat history. This cannot be undone.")
                     confirm_clear = st.checkbox("I understand this is irreversible", key="admin_confirm_clear")
                     if st.button(

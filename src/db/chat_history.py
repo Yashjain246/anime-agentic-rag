@@ -347,6 +347,27 @@ class ChatHistoryDB:
             "db_size_mb": db_size_mb,
         }
 
+    def get_recent_feedback(self, limit: int = 50) -> list[dict]:
+        """
+        Most recent site_feedback rows for the admin panel, newest first.
+        A rating and a comment are independent submissions (see
+        add_site_feedback) — either field may be empty on a given row.
+        """
+        if not self._connected:
+            return []
+        conn = self._get_conn()
+        try:
+            cur = self._execute(
+                conn,
+                "SELECT rating, comment, created_at FROM site_feedback "
+                "ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            )
+            rows = cur.fetchall()
+        finally:
+            self._release_conn(conn)
+        return [dict(row) for row in rows]
+
     def _safe(self, fn, default=None):
         """Runs fn(conn) against a fresh connection, but never lets a
         transient DB hiccup (connection pool exhausted, a table not yet
