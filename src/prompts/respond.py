@@ -155,36 +155,104 @@ def build_general_prompt(persona_text: str) -> str:
     )
 
 
+def _build_section(intent: str, persona_text: str, context: str) -> tuple[str, str]:
+    """Shared by build_system_prompt and build_combined_system_prompt — the
+    per-intent instruction + sentinel handling, without the persona preamble
+    or NATURAL_TONE_GUIDELINES (those are added once by the caller)."""
+    if intent == "LORE":
+        if "ANIME_NOT_SUPPORTED" in context:
+            return build_unsupported_anime_prompt(persona_text), ""
+        if "NO_CONTEXT_FOUND" in context:
+            return build_spoiler_block_prompt(persona_text), ""
+        return build_lore_prompt(persona_text, context), context
+
+    if intent == "RECOMMEND":
+        if "NO_RECS_FOUND" in context:
+            return build_general_prompt(persona_text), ""
+        return build_recs_prompt(persona_text, context), context
+
+    if intent == "TOOL":
+        return build_tool_prompt(persona_text, context), context
+
+    return build_general_prompt(persona_text), context  # GENERAL
+
+
 def build_system_prompt(
     intent: str,
     persona_text: str,
     context: str,
 ) -> tuple[str, str]:
     """
-    Returns (system_content, cleaned_context) for respond_node.
+    Returns (system_content, cleaned_context) for respond_node's
+    single-intent case.
 
     The cleaned_context is the context string after removing any
     sentinel values (NO_CONTEXT_FOUND etc.) that shouldn't be
     passed to the LLM.
     """
-    if intent == "LORE":
-        if "ANIME_NOT_SUPPORTED" in context:
-            prompt, cleaned_context = build_unsupported_anime_prompt(persona_text), ""
-        elif "NO_CONTEXT_FOUND" in context:
-            prompt, cleaned_context = build_spoiler_block_prompt(persona_text), ""
-        else:
-            prompt, cleaned_context = build_lore_prompt(persona_text, context), context
-
-    elif intent == "RECOMMEND":
-        if "NO_RECS_FOUND" in context:
-            prompt, cleaned_context = build_general_prompt(persona_text), ""
-        else:
-            prompt, cleaned_context = build_recs_prompt(persona_text, context), context
-
-    elif intent == "TOOL":
-        prompt, cleaned_context = build_tool_prompt(persona_text, context), context
-
-    else:  # GENERAL
-        prompt, cleaned_context = build_general_prompt(persona_text), context
-
+    prompt, cleaned_context = _build_section(intent, persona_text, context)
     return prompt + NATURAL_TONE_GUIDELINES, cleaned_context
+
+
+def build_combined_system_prompt(
+    intents: list[str],
+    persona_text: str,
+    context_by_source: dict[str, str],
+) -> tuple[str, str]:
+    """
+    Same contract as build_system_prompt, for a compound message that
+    matched more than one intent (e.g. a LORE question and a TOOL request
+    in the same message). Builds one section per intent — each with its
+    own grounding rules and only its own slice of context — instead of
+    blending everything into one instruction block, so a LORE section's
+    "answer ONLY from this context" rule doesn't accidentally get applied
+    to the TOOL section's result (or vice versa).
+
+    GENERAL contributes no retrieval of its own, so when it appears
+    alongside a real intent it gets no section of its own here — but it's
+    still noted below so the reply doesn't silently drop it (e.g. "Hi!
+    Also, who is Muzan?" used to jump straight into Muzan and never
+    acknowledge the greeting at all: the LORE section's "answer ONLY
+    using the context below" framing was the only instruction the model
+    saw, and with no mention that a casual part existed too, it read as
+    covering the whole reply). If GENERAL is the only intent,
+    build_system_prompt is used instead (see respond_node), so this
+    function is never called with intents == ["GENERAL"].
+    """
+    had_general = "GENERAL" in intents
+    real_intents = [i for i in intents if i != "GENERAL"] or intents
+
+    persona_shown = False
+    sections = []
+    cleaned_parts = []
+    for i, intent in enumerate(real_intents, start=1):
+        context = context_by_source.get(intent, "")
+        # _build_section prepends persona_text to whichever prompt it
+        # picks — only keep that once, from the first section, and strip
+        # it back off every section after.
+        section_prompt, cleaned = _build_section(intent, persona_text, context)
+        if persona_shown:
+            section_prompt = section_prompt.replace(f"{persona_text}\n\n", "", 1)
+        persona_shown = True
+        sections.append(f"--- Part {i}: answering the {intent} part of the message ---\n{section_prompt}")
+        if cleaned:
+            cleaned_parts.append(cleaned)
+
+    general_note = (
+        "\nThe message also has a casual/conversational part (a greeting, "
+        "small talk, an opinion question) with no dedicated section below "
+        "— acknowledge it naturally too, briefly, using your own "
+        "knowledge and personality, alongside the parts that do have "
+        "sections.\n"
+    ) if had_general else ""
+
+    combined = (
+        "The user's message asks for more than one thing. Answer every "
+        "part below, using ONLY the rules and context given for that part "
+        "— don't mix a part's grounding rules or context into another "
+        "part's answer. Weave the parts into one natural reply rather than "
+        "labeling them 'Part 1' / 'Part 2' for the user."
+        f"{general_note}\n"
+        + "\n\n".join(sections)
+    )
+    return combined + NATURAL_TONE_GUIDELINES, "\n\n---\n\n".join(cleaned_parts)

@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, field_validator
 from dotenv import load_dotenv
 
 # ── Project root ──────────────────────────────────────────────────────────────
@@ -43,6 +43,28 @@ class Settings(BaseSettings):
     LANGSMITH_API_KEY: str = Field(default="", description="LangSmith API key")
     LANGSMITH_PROJECT: str = Field(default="anime-rag-prod")
     LANGSMITH_ENDPOINT: str = Field(default="https://api.smith.langchain.com")
+
+    @field_validator(
+        "GOOGLE_API_KEY", "TAVILY_API_KEY", "OMDB_API_KEY", "MAL_CLIENT_ID",
+        "LANGSMITH_API_KEY", "LANGSMITH_PROJECT", "LANGSMITH_ENDPOINT",
+        "DATABASE_URL", "ADMIN_PASSWORD", "LLM_MODEL", "LLM_MODEL_FALLBACK",
+        mode="before",
+    )
+    @classmethod
+    def _strip_whitespace(cls, v):
+        """Strip surrounding whitespace from every credential/config string.
+
+        A secret pasted into GitHub Actions (or a .env line, or a Streamlit
+        secrets entry) very easily picks up a trailing newline, and nothing
+        upstream trims it. Found the hard way: OMDB_API_KEY arrived in CI as
+        "e7c5279c\\n", which got URL-encoded into the request as
+        "apikey=e7c5279c%0A" and returned 401 Unauthorized — so the ratings
+        tool failed on every call while looking like a credential problem
+        rather than a whitespace one. Cheap to prevent globally, and the
+        failure mode it causes is genuinely hard to diagnose from the
+        outside.
+        """
+        return v.strip() if isinstance(v, str) else v
 
     # ── Data paths ────────────────────────────────────────────────────────────
     DATA_DIR: Path = Field(default=DATA_DIR_DEFAULT)

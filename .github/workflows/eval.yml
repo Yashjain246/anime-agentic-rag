@@ -1,0 +1,68 @@
+name: Phase 1 evaluation gate
+
+# Deliberately PR-only, not on every push — this run costs ~216 real
+# Gemini calls (measured, see scripts/eval/run_eval.py), so it only
+# fires when a PR is opened/updated against dev or master, not on every
+# intermediate commit while iterating on a branch.
+on:
+  pull_request:
+    branches: [dev, master]
+  workflow_dispatch: {}  # lets you trigger it manually from the Actions tab too
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45  # deliberate 20s pacing between cases (see run_eval.py) puts a full run at ~25-30 min
+    env:
+      # Applies to every step below — config/settings.py requires
+      # GOOGLE_API_KEY/TAVILY_API_KEY/OMDB_API_KEY just to import
+      # successfully (they're required fields, no default), so even the
+      # dataset-upload step needs them present even though it never
+      # actually calls Gemini/Tavily/OMDB itself.
+      #
+      # GOOGLE_API_KEY is a SEPARATE, dedicated Google AI Studio key —
+      # not the one the live Streamlit app uses. A full run burns ~216
+      # Gemini calls; on a shared key that competes with real users for
+      # the same ~500/day free-tier budget. Create a free key at
+      # aistudio.google.com and add it as a repo secret named exactly
+      # EVAL_GOOGLE_API_KEY (Settings -> Secrets and variables ->
+      # Actions -> New repository secret).
+      GOOGLE_API_KEY: ${{ secrets.EVAL_GOOGLE_API_KEY }}
+      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      OMDB_API_KEY: ${{ secrets.OMDB_API_KEY }}
+      MAL_CLIENT_ID: ${{ secrets.MAL_CLIENT_ID }}
+      # CI-only model override — the app's own default (config/settings.py)
+      # is untouched, so this does NOT change what production serves.
+      # Set because the 3.1-flash-lite daily quota was nearly exhausted;
+      # each model has its own separate free-tier daily budget.
+      #
+      # KNOWN TRADEOFF: this means CI evaluates a different model than
+      # production runs, so a passing gate no longer strictly proves the
+      # deployed configuration is good. Acceptable while it's a quota
+      # workaround; the right long-term fix is for both to run the same
+      # model (either move prod to 3.5 too, or move CI back to 3.1 once
+      # quota allows).
+      LLM_MODEL: gemini-3.5-flash-lite
+      LLM_MODEL_FALLBACK: gemini-3.1-flash-lite
+      LANGSMITH_TRACING: "true"
+      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+      LANGSMITH_PROJECT: anime-rag-eval-ci
+      # No DATABASE_URL set — falls back to a local sqlite file
+      # (config/settings.py's default), which is exactly what a
+      # disposable CI run should use; never point this at Supabase.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements-lock.txt
+
+      - name: Upload golden dataset (idempotent)
+        run: python -m scripts.eval.upload_dataset
+
+      - name: Run evaluation
+        run: python -m scripts.eval.run_eval --prefix "ci-pr-${{ github.event.pull_request.number || 'manual' }}"

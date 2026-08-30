@@ -58,6 +58,16 @@ def detect_persona_switch(user_message: str) -> str | None:
             # Strip trailing punctuation / filler words
             name_query = re.sub(r"[.!?]+$", "", name_query).strip()
             name_query = re.sub(r"^(?:to\s+)?", "", name_query).strip()
+            # Strip trailing modifier phrases users commonly add after the
+            # actual name ("talk like Gojo from now on") - without this,
+            # find_character() below was searching for a character
+            # literally named "gojo from now on" and finding nothing, so
+            # the whole message silently fell through to normal routing
+            # instead of switching persona. Found via a real CI eval run.
+            name_query = re.sub(
+                r"\s*(from now on|from here on(?:\s+out)?|please|now)\.?$",
+                "", name_query, flags=re.IGNORECASE,
+            ).strip()
 
             character = find_character(name_query)
             if character:

@@ -10,12 +10,16 @@ Graph structure:
   episode_node ──(EPISODE_UPDATE?)──► END
        │ NO
        ▼
-  router_node
+  router_node  (finds every intent in the message, e.g. LORE + TOOL)
        │
-       ├──LORE──────► lore_node ──► respond_node ──► END
-       ├──RECOMMEND──► recs_node ──► respond_node ──► END
-       ├──TOOL──────► tools_node ──► respond_node ──► END
-       └──GENERAL───────────────► respond_node ──► END
+       ├──LORE───────► lore_node ─┐
+       ├──RECOMMEND──► recs_node ─┼──► respond_node ──► END
+       ├──TOOL───────► tools_node─┘
+       └──GENERAL only──────────────► respond_node ──► END
+
+A compound message fans out to more than one of lore_node/recs_node/
+tools_node in parallel; respond_node waits for all of them before
+building the combined reply. See _route_after_router below.
 """
 
 from __future__ import annotations
@@ -56,18 +60,21 @@ def _route_after_episode(
     return "router_node"
 
 
+_INTENT_TO_NODE = {"LORE": "lore_node", "RECOMMEND": "recs_node", "TOOL": "tools_node"}
+
+
 def _route_after_router(
     state: AgentState,
-) -> Literal["lore_node", "recs_node", "tools_node", "respond_node"]:
-    """After router_node: dispatch to the correct retrieval/tool node."""
-    intent = state.get("intent", "GENERAL")
-    if intent == "LORE":
-        return "lore_node"
-    if intent == "RECOMMEND":
-        return "recs_node"
-    if intent == "TOOL":
-        return "tools_node"
-    return "respond_node"  # GENERAL goes straight to respond
+) -> list[Literal["lore_node", "recs_node", "tools_node", "respond_node"]]:
+    """After router_node: dispatch to every retrieval/tool node the message
+    needs, in parallel — a compound message (e.g. a LORE question plus a
+    TOOL request) fans out to more than one. GENERAL contributes no
+    retrieval, so it's dropped whenever it's paired with a real intent;
+    it only routes straight to respond_node when it's the sole intent.
+    """
+    intents = state.get("intents") or [state.get("intent", "GENERAL")]
+    nodes = [_INTENT_TO_NODE[i] for i in intents if i in _INTENT_TO_NODE]
+    return nodes or ["respond_node"]
 
 
 # ── Build and compile the graph ───────────────────────────────────────────────
