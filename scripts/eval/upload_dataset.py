@@ -8,9 +8,13 @@ before this (build_golden_dataset.py) does. Requires LANGSMITH_TRACING
 and LANGSMITH_API_KEY set (Phase 0 already did this).
 
 Idempotent: each case's "id" field is turned into a stable UUID
-(uuid5, same string -> same UUID every time), so re-running this after
-editing golden_dataset.jsonl updates the existing examples in place
-instead of creating duplicates.
+(uuid5, same string -> same UUID every time). Genuinely idempotent
+despite client.create_examples()'s "Upsert" return type name NOT
+meaning what it sounds like — confirmed live in CI: it throws a hard
+409 LangSmithConflictError on an ID that already exists, it does not
+update in place. So this script checks which of today's IDs already
+exist first, and routes existing ones through update_examples()
+instead — create_examples() only ever sees genuinely new ones.
 
 Run:
     python -m scripts.eval.upload_dataset
@@ -69,8 +73,16 @@ def main() -> None:
         for case in cases
     ]
 
-    client.create_examples(dataset_name=DATASET_NAME, examples=examples)
-    print(f"Upserted {len(examples)} examples into '{DATASET_NAME}'")
+    existing_ids = {str(ex.id) for ex in client.list_examples(dataset_name=DATASET_NAME)}
+    to_create = [ex for ex in examples if ex["id"] not in existing_ids]
+    to_update = [ex for ex in examples if ex["id"] in existing_ids]
+
+    if to_create:
+        client.create_examples(dataset_name=DATASET_NAME, examples=to_create)
+    if to_update:
+        client.update_examples(dataset_name=DATASET_NAME, updates=to_update)
+
+    print(f"Created {len(to_create)}, updated {len(to_update)} examples in '{DATASET_NAME}'")
 
 
 if __name__ == "__main__":
