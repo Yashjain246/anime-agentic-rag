@@ -43,16 +43,29 @@ def intent_match(run, example) -> dict:
             "comment": f"expected={sorted(expected)} actual={sorted(actual)}"}
 
 
+# Intents that never produce a retrieved_context source, by design — not
+# a bug to catch. GENERAL contributes no retrieval (see
+# build_combined_system_prompt). PERSONA_SWITCH and EPISODE_UPDATE are
+# handled entirely by persona_node/episode_node, which short-circuit
+# straight to END before router_node (and therefore lore_node/recs_node/
+# tools_node) ever run — see src/agent/graph.py's _route_after_persona/
+# _route_after_episode. Confirmed live in the first CI-triggered run:
+# every "Be Levi."/"I'm caught up to episode X" case correctly switched
+# persona or updated the chapter cap, but this evaluator wrongly failed
+# all 7 of them for having no source, because only GENERAL was exempted.
+_NO_SOURCE_EXPECTED = {"GENERAL", "PERSONA_SWITCH", "EPISODE_UPDATE"}
+
+
 def every_intent_has_source(run, example) -> dict:
     """Structural sanity check used informally during live multi-intent
-    testing, now permanent: every non-GENERAL intent the router found
-    should have produced a retrieval/tool source. A mismatch here is
-    exactly the shape of bug this dataset exists to catch (e.g. the
-    intent_queries dict-collision bug where a TOOL entry silently
-    vanished)."""
+    testing, now permanent: every intent that's supposed to retrieve
+    something (LORE/RECOMMEND/TOOL) should have produced a matching
+    source. A mismatch here is exactly the shape of bug this dataset
+    exists to catch (e.g. the intent_queries dict-collision bug where a
+    TOOL entry silently vanished)."""
     intents = run.outputs.get("intents", [])
     sources = {b.get("source") for b in (run.outputs.get("retrieved_context") or [])}
-    missing = [i for i in intents if i != "GENERAL" and i not in sources]
+    missing = [i for i in intents if i not in _NO_SOURCE_EXPECTED and i not in sources]
     return {"key": "every_intent_has_source", "score": int(not missing),
             "comment": f"missing sources for: {missing}" if missing else "ok"}
 

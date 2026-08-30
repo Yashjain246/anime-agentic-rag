@@ -466,3 +466,27 @@ def test_run_agent_with_state_intents_fallback_on_short_circuit():
 
     assert result["intents"] == ["PERSONA_SWITCH"]  # not []
     assert result["persona"] == "Levi Ackerman"
+
+
+def test_every_intent_has_source_exempts_persona_and_episode():
+    """Regression, found by the first CI-triggered eval run: this
+    evaluator only exempted GENERAL from needing a retrieved_context
+    source, but PERSONA_SWITCH and EPISODE_UPDATE also never produce one
+    by design (persona_node/episode_node short-circuit before
+    lore_node/recs_node/tools_node ever run). Every real PERSONA_SWITCH/
+    EPISODE_UPDATE case in that run was correct (persona actually
+    switched, chapter cap actually updated) but got wrongly failed here."""
+    from types import SimpleNamespace
+    from src.eval.evaluators import every_intent_has_source
+
+    for intent in ("PERSONA_SWITCH", "EPISODE_UPDATE"):
+        example = SimpleNamespace(inputs={}, outputs={}, metadata={"category": intent})
+        run = SimpleNamespace(outputs={"intents": [intent], "retrieved_context": []})
+        result = every_intent_has_source(run, example)
+        assert result["score"] == 1, f"{intent} should not require a source: {result}"
+
+    # A real LORE case with no source SHOULD still fail — the exemption
+    # must be narrow, not a blanket "empty sources is fine."
+    example = SimpleNamespace(inputs={}, outputs={}, metadata={"category": "LORE"})
+    run = SimpleNamespace(outputs={"intents": ["LORE"], "retrieved_context": []})
+    assert every_intent_has_source(run, example)["score"] == 0
