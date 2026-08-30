@@ -13,6 +13,29 @@ jobs:
   eval:
     runs-on: ubuntu-latest
     timeout-minutes: 30  # the one real run so far took ~14 min; free-tier 429 retries can add real time
+    env:
+      # Applies to every step below — config/settings.py requires
+      # GOOGLE_API_KEY/TAVILY_API_KEY/OMDB_API_KEY just to import
+      # successfully (they're required fields, no default), so even the
+      # dataset-upload step needs them present even though it never
+      # actually calls Gemini/Tavily/OMDB itself.
+      #
+      # GOOGLE_API_KEY is a SEPARATE, dedicated Google AI Studio key —
+      # not the one the live Streamlit app uses. A full run burns ~216
+      # Gemini calls; on a shared key that competes with real users for
+      # the same ~500/day free-tier budget. Create a free key at
+      # aistudio.google.com and add it as a repo secret named exactly
+      # EVAL_GOOGLE_API_KEY (Settings -> Secrets and variables ->
+      # Actions -> New repository secret).
+      GOOGLE_API_KEY: ${{ secrets.EVAL_GOOGLE_API_KEY }}
+      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      OMDB_API_KEY: ${{ secrets.OMDB_API_KEY }}
+      LANGSMITH_TRACING: "true"
+      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+      LANGSMITH_PROJECT: anime-rag-eval-ci
+      # No DATABASE_URL set — falls back to a local sqlite file
+      # (config/settings.py's default), which is exactly what a
+      # disposable CI run should use; never point this at Supabase.
     steps:
       - uses: actions/checkout@v4
 
@@ -26,27 +49,6 @@ jobs:
 
       - name: Upload golden dataset (idempotent)
         run: python -m scripts.eval.upload_dataset
-        env:
-          LANGSMITH_TRACING: "true"
-          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
-          LANGSMITH_PROJECT: anime-rag-eval-ci
 
       - name: Run evaluation
         run: python -m scripts.eval.run_eval --prefix "ci-pr-${{ github.event.pull_request.number || 'manual' }}"
-        env:
-          # IMPORTANT: a SEPARATE, dedicated Google AI Studio key — not
-          # the one the live Streamlit app uses. This run alone burns
-          # ~216 calls; on a shared key that competes with real users
-          # for the same ~500/day free-tier budget. Create a free key
-          # at aistudio.google.com and add it as a repo secret named
-          # exactly EVAL_GOOGLE_API_KEY (Settings -> Secrets and
-          # variables -> Actions -> New repository secret).
-          GOOGLE_API_KEY: ${{ secrets.EVAL_GOOGLE_API_KEY }}
-          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-          OMDB_API_KEY: ${{ secrets.OMDB_API_KEY }}
-          LANGSMITH_TRACING: "true"
-          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
-          LANGSMITH_PROJECT: anime-rag-eval-ci
-          # No DATABASE_URL set — falls back to a local sqlite file
-          # (config/settings.py's default), which is exactly what a
-          # disposable CI run should use; never point this at Supabase.
