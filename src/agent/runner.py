@@ -101,7 +101,14 @@ def run_agent_with_state(
         "reply": reply,
         "persona": result.get("persona", persona),
         "intent": result.get("intent", "GENERAL"),
-        "intents": result.get("intents", [result.get("intent", "GENERAL")]),
+        # `or`, not .get(key, default) — "intents" is always present in state
+        # (initialized to [] below) but stays empty on the PERSONA_SWITCH/
+        # EPISODE_UPDATE short-circuit paths, which only ever set "intent",
+        # not "intents". dict.get()'s default only applies when a key is
+        # MISSING, not when it's present-but-falsy, so the intended fallback
+        # never fired — confirmed via Phase 1 eval: every persona/episode
+        # case correctly updated persona/chapter cap but reported intents=[].
+        "intents": result.get("intents") or [result.get("intent", "GENERAL")],
         "messages": result["messages"],
         "current_chapter": result.get("current_chapter", current_chapter),
         "anime_name": result.get("anime_name", anime_name),

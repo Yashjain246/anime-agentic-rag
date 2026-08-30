@@ -361,3 +361,108 @@ def test_router_node_merges_duplicate_intent_queries_not_overwrites():
     combined = result["intent_queries"]["TOOL"]
     assert "rating graph" in combined.lower()
     assert "episode airing" in combined.lower()  # both halves survived, merged
+
+
+# ── Eval (Phase 1) ───────────────────────────────────────────────────────────────
+
+def test_eval_evaluators_importable():
+    from src.eval.evaluators import ALL_EVALUATORS, DETERMINISTIC_EVALUATORS
+    assert len(ALL_EVALUATORS) == len(DETERMINISTIC_EVALUATORS) + 1  # + the LLM judge
+    assert all(callable(fn) for fn in ALL_EVALUATORS)
+
+
+def test_deterministic_evaluators_score_a_correct_lore_case():
+    """Drives every deterministic evaluator against a synthetic (run, example)
+    pair, no live API call — just locking in the calling contract (signature,
+    key/score shape, "not applicable" -> score=None) so a refactor of
+    src/eval/evaluators.py can't silently break scripts/eval/run_eval.py."""
+    from types import SimpleNamespace
+    from src.eval.evaluators import DETERMINISTIC_EVALUATORS
+
+    example = SimpleNamespace(
+        inputs={"message": "What happens in Chapter 11 of Demon Slayer?", "kwargs": {}},
+        outputs={"expected": {
+            "intents": ["LORE"], "expected_anime": "Demon Slayer",
+            "expected_chapter": 11, "reference_facts": ["x"], "should_decline": False,
+        }},
+        metadata={"id": "lore_demon_slayer_11", "category": "LORE"},
+    )
+    run = SimpleNamespace(outputs={
+        "reply": "Some grounded reply about chapter 11.",
+        "intents": ["LORE"],
+        "persona": "Default",
+        "current_chapter": 9999,
+        "anime_name": "Demon Slayer",
+        "retrieved_context": [{"source": "LORE", "text": "[Demon Slayer — Chapter 11]\nsome text"}],
+    })
+
+    results = {fn.__name__: fn(run, example) for fn in DETERMINISTIC_EVALUATORS}
+
+    assert results["intent_match"]["score"] == 1
+    assert results["every_intent_has_source"]["score"] == 1
+    assert results["retrieval_hit"]["score"] == 1
+    # Not applicable to a plain LORE case — must be explicitly None, not 0
+    # (0 would misreport as "failed" rather than "not scored").
+    for key in ("spoiler_not_leaked", "unsupported_anime_refused", "persona_switch_correct", "episode_cap_correct"):
+        assert results[key]["score"] is None
+
+
+def test_golden_dataset_builder_produces_valid_rows():
+    """Runs the actual dataset generator (fully local — reads real
+    manga_chapters.jsonl, no API calls, no upload) and checks the shape
+    every downstream evaluator relies on holds for every row."""
+    from scripts.eval.build_golden_dataset import (
+        build_lore_cases, build_episode_update_cases, build_recommend_cases,
+        build_tool_cases, build_persona_cases, build_general_cases, build_compound_cases,
+    )
+
+    all_cases = (
+        build_lore_cases() + build_episode_update_cases() + build_recommend_cases()
+        + build_tool_cases() + build_persona_cases() + build_general_cases() + build_compound_cases()
+    )
+    assert len(all_cases) >= 50
+
+    ids = [c["id"] for c in all_cases]
+    assert len(ids) == len(set(ids))  # every id unique — required for upload_dataset's upsert-by-id
+
+    for case in all_cases:
+        assert case["input"] and isinstance(case["input"], str)
+        assert isinstance(case["kwargs"], dict)
+        assert "intents" in case["expected"] and isinstance(case["expected"]["intents"], list)
+
+    # Spot-check: episode-cap ground truth actually matches the app's own
+    # documented example (episode 12 of Demon Slayer -> chapter 24).
+    ep_case = next(c for c in all_cases if c["id"] == "episode_update_demon_slayer_12")
+    assert ep_case["expected"]["expected_chapter_cap"] == 24
+
+
+def test_run_agent_with_state_intents_fallback_on_short_circuit():
+    """Regression, found via the Phase 1 eval run: on the PERSONA_SWITCH/
+    EPISODE_UPDATE short-circuit paths, only "intent" gets set by the
+    graph — "intents" stays at its initial_state value of [] (present,
+    just empty). result.get("intents", [default]) never actually applied
+    the fallback, because dict.get()'s default only kicks in when a key
+    is MISSING, not when it's present-but-falsy — so every persona/episode
+    turn reported intents=[] even though persona/current_chapter updated
+    correctly. Confirmed live: "Be Levi." scored persona="Levi Ackerman"
+    (correct) but intents=[] (wrong) in the same run. Fixed with `or`
+    instead of a dict.get() default."""
+    from unittest.mock import patch
+    from langchain_core.messages import AIMessage
+
+    fake_graph_result = {
+        "messages": [AIMessage(content="Tch. Get to the point.")],
+        "persona": "Levi Ackerman",
+        "intent": "PERSONA_SWITCH",
+        "intents": [],  # present but empty — exactly the short-circuit shape
+        "current_chapter": 9999,
+        "anime_name": "",
+        "spoiler_mode": False,
+    }
+    with patch("src.agent.runner.get_agent") as mock_get_agent:
+        mock_get_agent.return_value.invoke.return_value = fake_graph_result
+        from src.agent.runner import run_agent_with_state
+        result = run_agent_with_state(message="Be Levi.")
+
+    assert result["intents"] == ["PERSONA_SWITCH"]  # not []
+    assert result["persona"] == "Levi Ackerman"
