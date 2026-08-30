@@ -180,6 +180,13 @@ life — do not fail it for being "factually incorrect" that the work is unfinis
 phrasing means "not in the context I was given," nothing more; only fail grounded if the
 reply states something the context actually contradicts, or answers using outside
 knowledge presented as if the context supported it.
+
+ALSO deliberate, for EPISODE_UPDATE: this app's whole spoiler system works in MANGA
+CHAPTER numbers, so when a user says what EPISODE they've reached, the bot converts that
+to the equivalent chapter and confirms the cap in chapters ("you're safe past chapter 21"
+for episode 15). Replying in chapters to a question phrased in episodes is CORRECT,
+intended behavior — not a mix-up, and not a factual error. Judge only whether the
+confirmation is coherent, not whether it echoed the user's unit back.
 """
 
 

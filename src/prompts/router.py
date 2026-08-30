@@ -83,8 +83,13 @@ LORE - asking what happens in the story: plot events, character actions,
 RECOMMEND - asking what to watch, not what happens in something specific.
   "Suggest anime like AOT", "What should I watch next?",
   "Recommend something with a strong female lead"
-TOOL - needs live or external data the model can't know on its own:
-  airing schedules, episode ratings, news, or identifying a screenshot.
+TOOL - ONLY these specific anime-related lookups: airing schedules,
+  episode ratings, anime news, or identifying a screenshot. Not a general
+  "needs live data" catch-all — something needing real-world live data
+  that ISN'T one of those four (weather, stock prices, sports scores,
+  etc.) is GENERAL, not TOOL; answer it naturally or say you don't track
+  that, don't route it here just because it's not something you'd know
+  from training data alone.
   "When does JJK air?", "Show me AoT's episode ratings",
   "What anime is this screenshot from?"
 GENERAL - everything else: greetings, opinions, comparisons, casual chat
