@@ -166,3 +166,25 @@ class Settings(BaseSettings):
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
 settings = Settings()
+
+# The _strip_whitespace validator above only cleans the value as it lands on
+# this Settings object. Some SDKs never read that object — they pull their
+# credential straight out of os.environ at construction time — so they still
+# receive the raw, untrimmed value. langchain_tavily is one: src/tools/registry.py
+# builds TavilySearch() with no explicit key, and a TAVILY_API_KEY carrying a
+# trailing newline produced
+#     InvalidHeader("... in header value: 'Bearer tvly-dev-...\n'")
+# which failed EVERY anime_news_search call in CI. OMDB was immune only because
+# src/tools/omdb.py happens to read settings.OMDB_API_KEY.
+#
+# Normalizing os.environ itself covers both styles of consumer, including any
+# library added later, rather than needing the fix repeated per integration.
+# Runs at import of config.settings, which every entry point does before
+# constructing tools, so the cleaned value is in place first.
+for _key in (
+    "GOOGLE_API_KEY", "TAVILY_API_KEY", "OMDB_API_KEY", "MAL_CLIENT_ID",
+    "LANGSMITH_API_KEY", "LANGSMITH_PROJECT", "LANGSMITH_ENDPOINT",
+):
+    _raw = os.environ.get(_key)
+    if _raw is not None and _raw != _raw.strip():
+        os.environ[_key] = _raw.strip()
