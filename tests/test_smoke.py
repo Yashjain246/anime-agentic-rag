@@ -51,6 +51,69 @@ def test_settings_strips_whitespace_from_credentials(monkeypatch):
     assert s.MAL_CLIENT_ID == "mal456"
 
 
+def test_settings_normalizes_os_environ_for_sdks_that_bypass_settings(monkeypatch):
+    """Second half of the same bug. Stripping the value on the Settings
+    object isn't enough for SDKs that read os.environ directly and never
+    touch Settings — langchain_tavily builds its auth header straight from
+    TAVILY_API_KEY, so a trailing newline survived the validator and raised
+    InvalidHeader on every news search in CI, while OMDB (which reads
+    settings.OMDB_API_KEY) was already fixed. config.settings normalizes
+    os.environ itself so both styles of consumer get a clean value."""
+    import importlib
+    import os as _os
+
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-dev-abc\n")
+    monkeypatch.setenv("MAL_CLIENT_ID", "  mal789  ")
+    importlib.reload(importlib.import_module("config.settings"))
+
+    assert _os.environ["TAVILY_API_KEY"] == "tvly-dev-abc"
+    assert _os.environ["MAL_CLIENT_ID"] == "mal789"
+    assert "\n" not in _os.environ["TAVILY_API_KEY"]
+
+
+def test_calendar_event_carries_no_owner_reminder():
+    """The shared anime calendar is owned by one account, and Calendar API
+    reminders are per-authenticated-user — so a per-event popup override
+    fired at the calendar's owner for every request made by every user of
+    the app, not at the person who asked. Undeduplicated inserts turned
+    that into 5-10 notifications for a single episode. Source events must
+    carry no reminder override; subscribers and copiers still get their
+    own calendar defaults."""
+    from src.tools import calendar as cal
+
+    captured = {}
+
+    class _FakeEvents:
+        def insert(self, calendarId, body):
+            captured["calendarId"] = calendarId
+            captured["body"] = body
+            return self
+
+        def execute(self):
+            return {"htmlLink": "https://calendar.google.com/event?eid=fake"}
+
+    class _FakeService:
+        def events(self):
+            return _FakeEvents()
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(cal.settings, "ENABLE_CALENDAR_TOOL", True, raising=False)
+    monkeypatch.setattr(cal, "_get_calendar_service", lambda: _FakeService())
+    try:
+        result = cal.google_calendar_add.invoke(
+            {
+                "anime_title": "Chainsaw Man",
+                "broadcast_day": "Thursday",
+                "broadcast_time": "23:00",
+            }
+        )
+    finally:
+        monkeypatch.undo()
+
+    assert "Event created" in result
+    assert captured["body"]["reminders"] == {"useDefault": False, "overrides": []}
+
+
 # ── Agent modules ─────────────────────────────────────────────────────────────
 
 def test_agent_state_importable():

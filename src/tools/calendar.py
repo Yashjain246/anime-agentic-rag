@@ -156,10 +156,23 @@ def google_calendar_add(
             "start": {"dateTime": utc_s.isoformat(), "timeZone": "UTC"},
             "end": {"dateTime": utc_e.isoformat(), "timeZone": "UTC"},
             "visibility": "public",
-            "reminders": {
-                "useDefault": False,
-                "overrides": [{"method": "popup", "minutes": 15}],
-            },
+            # No reminder on the source event. In the Calendar API, an event's
+            # `reminders` are per-user — they describe notifications for the
+            # authenticated account, which here is always the single service
+            # account that owns _PUBLIC_CALENDAR_ID. So the old 15-minute popup
+            # override didn't notify the person who asked for the event; it
+            # notified the calendar's owner, once per insert, for every request
+            # from every user of the app. Combined with the fact that inserts
+            # aren't deduplicated, ten people asking about the same episode
+            # meant ten popups on one person's phone.
+            #
+            # Setting no overrides silences only that owner copy. Anyone who
+            # subscribes to the public calendar still gets whatever default
+            # notifications they've configured for it on their end, and anyone
+            # who copies the event into their own calendar gets their own
+            # calendar's defaults — so the people who actually want the
+            # reminder keep it.
+            "reminders": {"useDefault": False, "overrides": []},
         }
         created = service.events().insert(calendarId=_PUBLIC_CALENDAR_ID, body=event).execute()
         return (
