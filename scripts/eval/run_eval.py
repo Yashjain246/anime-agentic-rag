@@ -16,6 +16,13 @@ tier. On GOOGLE_API_KEY's ~500/day free-tier budget, that's a real
 chunk — see .github/workflows/eval.yml for why CI uses a separate,
 dedicated key instead of sharing the one the live app depends on.
 
+Runtime: ~25-30 min for the full dataset, most of it the deliberate
+20s pause between cases (see _PACING_SECONDS) — added after a real run
+measured 27 requests/minute against the free tier's 15/minute ceiling,
+confirmed directly in the Google AI Studio rate-limit dashboard. Slower
+on purpose: the alternative isn't "faster", it's the same calls plus
+wasted 429-triggered retries.
+
 Run:
     python -m scripts.eval.run_eval
     python -m scripts.eval.run_eval --prefix "after-prompt-tweak"
@@ -25,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 
 from langsmith import evaluate
 
@@ -33,29 +41,48 @@ from src.agent.runner import run_agent_with_state
 from src.eval.evaluators import ALL_EVALUATORS
 from scripts.eval.upload_dataset import DATASET_NAME
 
-# Minimum mean score per metric for the CI gate (see run_ci_gate.yml) to
-# pass. Deliberately conservative starting points, not tuned targets —
-# set from the one real baseline run so far (before the intents=[] and
-# judge-prompt fixes landed, so intent_match/faithfulness have extra
-# headroom below their now-expected real scores), not from many runs'
-# worth of data. Tighten these once a handful of real PR-triggered runs
-# establish a stable baseline on the dedicated CI key.
+# Minimum mean score per metric for the CI gate
+# (.github/workflows/eval.yml) to pass. Set deliberately BELOW the
+# measured baseline rather than at it: the gate's job is catching a real
+# regression, and a threshold sitting exactly on the baseline just
+# produces flaky failures from normal run-to-run variance (the
+# faithfulness metric is an LLM judge, so it varies by a few points
+# between identical runs by nature). Tighten these once several real CI
+# runs establish the actual variance band.
 #
 # spoiler_not_leaked and unsupported_anime_refused get zero tolerance —
 # both are safety properties (never reveal a chapter beyond the user's
 # progress; never silently answer with the wrong anime's lore), not
 # quality-of-answer scores, so any regression here should fail the build
-# every time, not just on average.
+# every time, not just on average. Caveat worth knowing:
+# unsupported_anime_refused only has 2 cases in the dataset, so a single
+# transient failure reads as 0.50 and fails the build — acceptable while
+# it's a safety property, but worth more cases if it ever proves flaky.
 MIN_SCORES = {
     "spoiler_not_leaked": 1.0,
     "unsupported_anime_refused": 1.0,
     "every_intent_has_source": 0.95,
-    "faithfulness_and_relevance": 0.85,
+    "faithfulness_and_relevance": 0.80,  # baseline ~0.90-0.93 post-fix; margin for LLM-judge variance
     "intent_match": 0.75,
     "episode_cap_correct": 0.75,
-    "persona_switch_correct": 0.5,  # known gap: "from now on" phrasing not yet handled
+    "persona_switch_correct": 0.75,
     "retrieval_hit": 0.5,  # inherently hard for bare "what happens in chapter N" queries
 }
+
+
+# Deliberate pause after every case, not just max_concurrency=1. Cases
+# run strictly one at a time either way, but with zero gap between them
+# a compound case's own 4-7 sequential calls could still land right up
+# against the next case's first call, bursting past the free tier's 15
+# requests/minute ceiling in a rolling window even though nothing is
+# technically concurrent. Confirmed for real: a full CI run peaked at 27
+# RPM against the 15 limit (seen directly in the Google AI Studio rate
+# limit dashboard), and the extra 429-triggered retries that caused are
+# exactly the kind of wasted, avoidable API usage worth eliminating, not
+# just tolerating with retries. 20s costs real wall-clock time on a full
+# run but should mean fewer wasted retries, not just a slower version of
+# the same waste.
+_PACING_SECONDS = 20
 
 
 def target(inputs: dict) -> dict:
@@ -63,6 +90,7 @@ def target(inputs: dict) -> dict:
     the Streamlit app calls every turn, so this evaluates the real
     agent, not a stand-in."""
     result = run_agent_with_state(message=inputs["message"], **inputs.get("kwargs", {}))
+    time.sleep(_PACING_SECONDS)
     return {
         "reply": result["reply"],
         "intents": result["intents"],

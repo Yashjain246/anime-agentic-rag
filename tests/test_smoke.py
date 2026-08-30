@@ -31,6 +31,26 @@ def test_settings_paths_exist(tmp_path):
     assert settings.CHARTS_DIR is not None
 
 
+def test_settings_strips_whitespace_from_credentials(monkeypatch):
+    """Regression, found in a real CI eval run: OMDB_API_KEY arrived from
+    GitHub Actions secrets with a trailing newline, which got URL-encoded
+    into the request as 'apikey=e7c5279c%0A' and returned 401
+    Unauthorized — so every ratings lookup failed while looking like a
+    bad-credential problem rather than a whitespace one. Secrets pasted
+    into GitHub/Streamlit/.env pick up trailing newlines very easily, so
+    every credential field is stripped on load."""
+    from config.settings import Settings
+
+    monkeypatch.setenv("OMDB_API_KEY", "abc123\n")
+    monkeypatch.setenv("TAVILY_API_KEY", "  tvly-xyz  ")
+    monkeypatch.setenv("MAL_CLIENT_ID", "mal456\r\n")
+    s = Settings()
+
+    assert s.OMDB_API_KEY == "abc123"
+    assert s.TAVILY_API_KEY == "tvly-xyz"
+    assert s.MAL_CLIENT_ID == "mal456"
+
+
 # ── Agent modules ─────────────────────────────────────────────────────────────
 
 def test_agent_state_importable():
@@ -110,6 +130,18 @@ def test_persona_reset_detected():
 def test_persona_no_match():
     from src.persona.detector import detect_persona_switch
     assert detect_persona_switch("What happens in episode 5?") is None
+
+
+def test_persona_switch_with_trailing_modifier_phrase():
+    """Regression, found via a real CI eval run: 'Talk like Gojo from
+    now on.' never switched persona at all - the regex captured 'gojo
+    from now on' as the character name and find_character() found
+    nothing, so the whole request silently fell through to normal
+    routing instead of switching. Same for other common trailing
+    phrases users add after the actual name."""
+    from src.persona.detector import detect_persona_switch
+    assert detect_persona_switch("Talk like Gojo from now on.") == "Satoru Gojo"
+    assert detect_persona_switch("Pretend to be Tanjiro please") is not None
 
 
 # ── Episode ───────────────────────────────────────────────────────────────────
